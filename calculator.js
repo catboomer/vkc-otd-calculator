@@ -998,3 +998,56 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
+
+// ============================================
+// IFRAME HEIGHT COMMUNICATION
+// ============================================
+
+/**
+ * Send current document height to parent window
+ * Used for dynamic iframe resizing in Webflow
+ */
+function postHeightToParent() {
+  const height = document.documentElement.scrollHeight;
+  window.parent.postMessage({
+    type: 'vkc-calculator-height',
+    height: height
+  }, '*');
+}
+
+/**
+ * Initialize height observer for iframe resizing
+ */
+function initHeightObserver() {
+  // Only run if we're in an iframe
+  if (window.self === window.top) return;
+  
+  // Send initial height after a short delay (allow render)
+  setTimeout(postHeightToParent, 100);
+  
+  // Observe DOM changes that might affect height
+  const resizeObserver = new ResizeObserver(() => {
+    postHeightToParent();
+  });
+  
+  resizeObserver.observe(document.body);
+  
+  // Also send height on window resize
+  window.addEventListener('resize', postHeightToParent);
+  
+  // Send height when collapsible sections toggle
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.otd-details-toggle, .otd-add-item-btn, .otd-item-remove, .otd-remove-section-btn, #addTradeInBtn')) {
+      // Small delay to let animation/DOM update complete
+      setTimeout(postHeightToParent, 50);
+    }
+  });
+}
+
+// Initialize height observer when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initHeightObserver);
+} else {
+  initHeightObserver();
+}
