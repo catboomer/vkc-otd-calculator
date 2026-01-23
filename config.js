@@ -24,7 +24,13 @@ class IllinoisSalesTaxLookup {
       this.loaded = true;
     } catch (error) {
       console.error('Failed to load Illinois sales tax data:', error);
-      throw new Error('Unable to load sales tax data');
+      // Don't throw - fall back to default rate
+      this.data = {
+        countyRates: { DEFAULT: 0.0625 },
+        chicagoZips: [],
+        zipToCounty: {}
+      };
+      this.loaded = true;
     }
   }
 
@@ -32,7 +38,7 @@ class IllinoisSalesTaxLookup {
     if (!this.loaded || !this.data) {
       return {
         rate: 0.0625,
-        location: 'Illinois (Statewide Rate)',
+        location: 'Illinois',
         county: null,
         isEstimate: true
       };
@@ -41,48 +47,96 @@ class IllinoisSalesTaxLookup {
     const normalizedZip = String(zipCode).trim().slice(0, 5);
 
     // Check if it's a Chicago ZIP code (special 9.50% rate)
-    if (this.data.chicagoZips.includes(normalizedZip)) {
+    if (this.data.chicagoZips && this.data.chicagoZips.includes(normalizedZip)) {
       return {
-        rate: this.data.countyRates.COOK_CHICAGO,
+        rate: this.data.countyRates.COOK_CHICAGO || 0.0950,
         location: 'Chicago',
-        county: 'Cook',
+        county: 'COOK',
         isEstimate: false
       };
     }
 
-    // Look up county for this ZIP code
-    const county = this.data.zipToCounty[normalizedZip];
-
-    if (county) {
-      const rate = this.data.countyRates[county];
-      
+    // Try direct ZIP lookup first
+    const county = this.data.zipToCounty ? this.data.zipToCounty[normalizedZip] : null;
+    
+    if (county && this.data.countyRates[county]) {
       return {
-        rate: rate,
+        rate: this.data.countyRates[county],
         location: this._formatCountyName(county),
         county: county,
         isEstimate: false
       };
     }
 
+    // Try ZIP prefix matching (60xxx pattern)
+    const zipPrefix = normalizedZip.substring(0, 3);
+    const county_by_prefix = this._getCountyByPrefix(zipPrefix);
+    
+    if (county_by_prefix && this.data.countyRates[county_by_prefix]) {
+      return {
+        rate: this.data.countyRates[county_by_prefix],
+        location: this._formatCountyName(county_by_prefix),
+        county: county_by_prefix,
+        isEstimate: false
+      };
+    }
+
     // ZIP code not found - return state rate as fallback
     return {
-      rate: 0.0625,
-      location: 'Illinois (Statewide Rate)',
+      rate: this.data.countyRates.DEFAULT || 0.0625,
+      location: 'Illinois',
       county: null,
       isEstimate: true
     };
   }
 
-  _formatCountyName(countyName) {
-    if (countyName === 'SAINT CLAIR') return 'St. Clair County';
-    if (countyName === 'COOK_CHICAGO') return 'Chicago';
+  _getCountyByPrefix(prefix) {
+    // Based on Illinois ZIP code geographic patterns
+    // 600xx, 601xx, 602xx, 603xx, 604xx, 605xx, 606xx, 607xx, 608xx = Chicago Metro
+    // 610xx, 611xx, 612xx, 613xx, 614xx, 615xx, 616xx, 617xx, 618xx = Rockford/North
+    // 620xx, 621xx, 622xx = Metro East (St. Clair/Madison)
+    // 623xx-629xx = Downstate
     
+    const prefixMap = {
+      // Cook County Suburban (not Chicago - those are in chicagoZips array)
+      '600': 'COOK', '601': 'COOK', '602': 'COOK', '603': 'COOK',
+      '604': 'COOK', '605': 'COOK', '607': 'COOK', '608': 'COOK',
+      
+      // Rockford area - Winnebago County
+      '610': 'WINNEBAGO', '611': 'WINNEBAGO',
+      
+      // Champaign County
+      '618': 'CHAMPAIGN',
+      
+      // Metro East - St. Clair/Madison
+      '620': 'MADISON', '621': 'MADISON', '622': 'SAINT_CLAIR',
+      
+      // Sangamon County (Springfield)
+      '627': 'SANGAMON',
+      
+      // Downstate defaults
+      '623': 'DEFAULT', '624': 'DEFAULT', '625': 'DEFAULT',
+      '626': 'DEFAULT', '628': 'DEFAULT', '629': 'DEFAULT'
+    };
+    
+    return prefixMap[prefix] || null;
+  }
+
+  _formatCountyName(countyName) {
+    if (!countyName) return 'Illinois';
+    if (countyName === 'SAINT_CLAIR') return 'St. Clair County';
+    if (countyName === 'COOK_CHICAGO') return 'Chicago';
+    if (countyName === 'COOK') return 'Cook County';
+    if (countyName === 'ROCK_ISLAND') return 'Rock Island County';
+    if (countyName === 'DEFAULT') return 'Illinois';
+    
+    // Handle McHenry, McLean, etc.
     if (countyName.startsWith('MC')) {
-      return countyName.charAt(0) + countyName.charAt(1).toLowerCase() + 
-             countyName.slice(2).charAt(0).toUpperCase() + 
+      return 'Mc' + countyName.slice(2).charAt(0).toUpperCase() + 
              countyName.slice(3).toLowerCase() + ' County';
     }
     
+    // Standard formatting
     return countyName.charAt(0).toUpperCase() + 
            countyName.slice(1).toLowerCase() + ' County';
   }

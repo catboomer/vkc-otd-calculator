@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Illinois Sales Tax Lookup - TEST</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      max-width: 900px;
+      margin: 20px auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    h1 { color: #333; margin-bottom: 30px; }
+    h2 { color: #666; margin-top: 30px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+    .test-section {
+      background: #f9f9f9;
+      padding: 20px;
+      margin: 15px 0;
+      border-radius: 8px;
+      border-left: 4px solid #0066cc;
+    }
+    .test-row {
+      display: grid;
+      grid-template-columns: 100px 150px 150px auto;
+      gap: 15px;
+      padding: 10px;
+      border-bottom: 1px solid #ddd;
+      align-items: center;
+    }
+    .test-row.header {
+      font-weight: 600;
+      background: #e3f2fd;
+      border-radius: 4px;
+    }
+    .test-row:last-child { border-bottom: none; }
+    .pass { color: #4caf50; font-weight: 600; }
+    .fail { color: #f44336; font-weight: 600; }
+    .zip { font-family: monospace; font-weight: 600; }
+    .expected { color: #666; }
+    .actual { font-weight: 600; }
+    .status { font-size: 20px; }
+    .summary {
+      background: #e3f2fd;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+    .summary h2 { margin-top: 0; border: none; }
+    .input-test {
+      margin: 20px 0;
+      padding: 20px;
+      background: #fff3cd;
+      border-radius: 8px;
+    }
+    input {
+      padding: 10px;
+      font-size: 16px;
+      border: 2px solid #ddd;
+      border-radius: 4px;
+      width: 150px;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      background: #0066cc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-left: 10px;
+    }
+    button:hover { background: #0052a3; }
+    #manualResult {
+      margin-top: 15px;
+      padding: 15px;
+      background: white;
+      border-radius: 4px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧪 Illinois Sales Tax Lookup - TEST SUITE</h1>
+
+  <div class="summary" id="summary">
+    <h2>Test Summary</h2>
+    <div id="summaryText">Running tests...</div>
+  </div>
+
+  <div class="input-test">
+    <h2>Manual Test</h2>
+    <p>Enter any ZIP code to test:</p>
+    <input type="text" id="zipInput" placeholder="Enter ZIP" maxlength="5">
+    <button onclick="testZip()">Test</button>
+    <div id="manualResult"></div>
+  </div>
+
+  <h2>Automated Tests</h2>
+  
+  <div class="test-section">
+    <h3>Chicago (9.50% - Special Rate)</h3>
+    <div id="chicagoTests"></div>
+  </div>
+
+  <div class="test-section">
+    <h3>Cook County Suburban (8.25%)</h3>
+    <div id="cookTests"></div>
+  </div>
+
+  <div class="test-section">
+    <h3>Collar Counties (7.25%)</h3>
+    <div id="collarTests"></div>
+  </div>
+
+  <div class="test-section">
+    <h3>Downstate (6.25%)</h3>
+    <div id="downstateTests"></div>
+  </div>
+
+  <script src="config.js"></script>
+  <script>
+    // Test cases with expected results
+    const testCases = {
+      chicago: [
+        { zip: '60601', expected: 0.0950, location: 'Chicago' },
+        { zip: '60614', expected: 0.0950, location: 'Chicago' },
+        { zip: '60657', expected: 0.0950, location: 'Chicago' },
+        { zip: '60640', expected: 0.0950, location: 'Chicago' }
+      ],
+      cook: [
+        { zip: '60025', expected: 0.0825, location: 'Glenview' },
+        { zip: '60026', expected: 0.0825, location: 'Glenview' },
+        { zip: '60090', expected: 0.0825, location: 'Wheeling' },
+        { zip: '60004', expected: 0.0825, location: 'Arlington Heights' },
+        { zip: '60062', expected: 0.0825, location: 'Northbrook' },
+        { zip: '60068', expected: 0.0825, location: 'Park Ridge' }
+      ],
+      collar: [
+        { zip: '60010', expected: 0.0725, location: 'Barrington' },
+        { zip: '60015', expected: 0.0700, location: 'Deerfield' },
+        { zip: '60148', expected: 0.0725, location: 'Lombard' },
+        { zip: '60540', expected: 0.0725, location: 'Naperville' },
+        { zip: '60505', expected: 0.0725, location: 'Aurora' }
+      ],
+      downstate: [
+        { zip: '62701', expected: 0.0625, location: 'Springfield' },
+        { zip: '61604', expected: 0.0725, location: 'Peoria' },  // Peoria is 7.25% (has RTA)
+        { zip: '61801', expected: 0.0725, location: 'Urbana' }   // Champaign is 7.25% (has RTA)
+      ]
+    };
+
+    let totalTests = 0;
+    let passedTests = 0;
+
+    function runTest(zip, expectedRate, expectedLocation, containerId) {
+      totalTests++;
+      const result = taxLookup.getTaxRate(zip);
+      const passed = Math.abs(result.rate - expectedRate) < 0.0001;
+      
+      if (passed) passedTests++;
+
+      const row = document.createElement('div');
+      row.className = 'test-row';
+      row.innerHTML = `
+        <div class="zip">${zip}</div>
+        <div class="expected">${(expectedRate * 100).toFixed(2)}%</div>
+        <div class="actual ${passed ? 'pass' : 'fail'}">${(result.rate * 100).toFixed(2)}%</div>
+        <div>
+          ${result.location}
+          ${result.isEstimate ? ' <em>(estimate)</em>' : ''}
+          <span class="status">${passed ? '✓' : '✗'}</span>
+        </div>
+      `;
+      document.getElementById(containerId).appendChild(row);
+    }
+
+    function createHeader(containerId) {
+      const header = document.createElement('div');
+      header.className = 'test-row header';
+      header.innerHTML = `
+        <div>ZIP</div>
+        <div>Expected</div>
+        <div>Actual</div>
+        <div>Location</div>
+      `;
+      document.getElementById(containerId).appendChild(header);
+    }
+
+    function testZip() {
+      const zip = document.getElementById('zipInput').value.trim();
+      const resultDiv = document.getElementById('manualResult');
+      
+      if (!zip || zip.length !== 5) {
+        resultDiv.innerHTML = '<strong style="color: red;">Please enter a 5-digit ZIP code</strong>';
+        resultDiv.style.display = 'block';
+        return;
+      }
+
+      const result = taxLookup.getTaxRate(zip);
+      resultDiv.innerHTML = `
+        <strong>ZIP Code ${zip}:</strong><br>
+        Tax Rate: <strong>${(result.rate * 100).toFixed(2)}%</strong><br>
+        Location: ${result.location}<br>
+        County: ${result.county || 'N/A'}<br>
+        ${result.isEstimate ? '<em style="color: orange;">⚠️ Estimate (ZIP not in database)</em>' : '<em style="color: green;">✓ Verified</em>'}
+      `;
+      resultDiv.style.display = 'block';
+    }
+
+    async function runAllTests() {
+      // Wait for tax data to load
+      await taxLookup.load();
+      
+      // Create headers
+      createHeader('chicagoTests');
+      createHeader('cookTests');
+      createHeader('collarTests');
+      createHeader('downstateTests');
+
+      // Run all test cases
+      testCases.chicago.forEach(t => runTest(t.zip, t.expected, t.location, 'chicagoTests'));
+      testCases.cook.forEach(t => runTest(t.zip, t.expected, t.location, 'cookTests'));
+      testCases.collar.forEach(t => runTest(t.zip, t.expected, t.location, 'collarTests'));
+      testCases.downstate.forEach(t => runTest(t.zip, t.expected, t.location, 'downstateTests'));
+
+      // Update summary
+      const summaryDiv = document.getElementById('summaryText');
+      const allPassed = passedTests === totalTests;
+      summaryDiv.innerHTML = `
+        <div style="font-size: 24px; margin-bottom: 10px;">
+          ${allPassed ? '✅' : '⚠️'} 
+          <strong>${passedTests} / ${totalTests}</strong> tests passed
+        </div>
+        ${allPassed ? 
+          '<div style="color: #4caf50; font-weight: 600;">All tests passing! ✓</div>' : 
+          '<div style="color: #f44336; font-weight: 600;">Some tests failed - check results below</div>'
+        }
+      `;
+    }
+
+    // Run tests when page loads
+    runAllTests();
+  </script>
+</body>
+</html>
