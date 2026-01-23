@@ -451,6 +451,7 @@ function updateTradeEquity() {
 
 /**
  * Update tax rate display based on ZIP code
+ * Uses the Illinois sales tax lookup system
  */
 function updateTaxRate() {
   const display = document.getElementById('taxRateDisplay');
@@ -458,21 +459,26 @@ function updateTaxRate() {
   const location = document.getElementById('taxRateLocation');
   
   if (state.zipCode.length === 5) {
-    const taxInfo = TAX_RATES[state.zipCode];
+    // Use the new tax lookup system
+    const taxInfo = taxLookup.getTaxRate(state.zipCode);
     
-    if (taxInfo) {
-      state.taxRate = taxInfo.rate;
-      state.taxLocation = taxInfo.city;
-      state.isCookCounty = taxInfo.county === 'Cook';
-      rateValue.textContent = formatPercent(taxInfo.rate);
-      location.textContent = `(${taxInfo.city})`;
+    state.taxRate = taxInfo.rate;
+    state.taxLocation = taxInfo.location;
+    state.isCookCounty = taxInfo.county === 'COOK' || taxInfo.county === 'COOK_CHICAGO';
+    
+    rateValue.textContent = formatPercent(taxInfo.rate);
+    
+    // Show location with estimate warning if needed
+    if (taxInfo.isEstimate) {
+      location.textContent = `(${taxInfo.location})*`;
+      location.title = 'ZIP code not found - using statewide rate. Verify with dealer.';
+      location.style.fontStyle = 'italic';
     } else {
-      state.taxRate = CONFIG.defaultTaxRate;
-      state.taxLocation = '';
-      state.isCookCounty = false;
-      rateValue.textContent = formatPercent(CONFIG.defaultTaxRate);
-      location.textContent = '(default rate)';
+      location.textContent = `(${taxInfo.location})`;
+      location.title = '';
+      location.style.fontStyle = 'normal';
     }
+    
     display.style.display = 'flex';
   } else {
     display.style.display = 'none';

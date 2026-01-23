@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Out-the-Door Calculator | V Knows Cars</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="otd-calculator" id="otdCalculator">
+    
+    <!-- Header -->
+    <header class="otd-header">
+      <h1>Out-the-Door Calculator</h1>
+      <p>Estimate your total vehicle cost in Illinois</p>
+    </header>
+
+    <!-- Vehicle Section -->
+    <section class="otd-section">
+      <h2 class="otd-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>
+          <path d="M5 17H3v-6l2-4h9l4 4h3v6h-2M3 11h15"/>
+        </svg>
+        Vehicle
+      </h2>
+      <div class="otd-field">
+        <label class="otd-label" for="vehicleDesc">
+          What vehicle are you considering? <span class="otd-label-hint">(optional)</span>
+        </label>
+        <input type="text" id="vehicleDesc" class="otd-input" placeholder="e.g., 2024 BMW X5 xDrive40i">
+      </div>
+      <div class="otd-field">
+        <label class="otd-label" for="vehiclePrice">Vehicle Price</label>
+        <div class="otd-input-prefix">
+          <input type="text" id="vehiclePrice" class="otd-input" inputmode="decimal" placeholder="0">
+        </div>
+      </div>
+      <div class="otd-field">
+        <label class="otd-label" for="zipCode">
+          ZIP Code <span class="otd-label-hint">(for tax rate)</span>
+        </label>
+        <input type="text" id="zipCode" class="otd-input" inputmode="numeric" maxlength="5" placeholder="e.g., 60010">
+        <div class="otd-computed" id="taxRateDisplay" style="display: none;">
+          <div class="otd-computed-item">
+            <span class="otd-computed-label">Tax rate: </span>
+            <span class="otd-computed-value" id="taxRateValue">7.25%</span>
+            <span class="otd-computed-label" id="taxRateLocation"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Trade-in Section -->
+    <section class="otd-section">
+      <h2 class="otd-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M17 1l4 4-4 4M3 11V9a4 4 0 014-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 01-4 4H3"/>
+        </svg>
+        Trade-In
+      </h2>
+      
+      <!-- Add Trade-in Button (shown when no trade-in) -->
+      <button type="button" class="otd-add-item-btn" id="addTradeInBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        Add trade-in
+      </button>
+      
+      <!-- Trade-in Content (hidden by default) -->
+      <div id="tradeInContent" style="display: none;">
+        <div class="otd-field">
+          <div class="otd-field-header">
+            <label class="otd-label" for="tradeDesc">
+              What are you trading in? <span class="otd-label-hint">(optional)</span>
+            </label>
+            <button type="button" class="otd-remove-section-btn" id="removeTradeInBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+              Remove
+            </button>
+          </div>
+          <input type="text" id="tradeDesc" class="otd-input" placeholder="e.g., 2020 Honda Accord EX-L">
+        </div>
+        <div class="otd-field">
+          <label class="otd-label" for="tradeValue">Trade-In Value</label>
+          <div class="otd-input-with-tooltip">
+            <div class="otd-input-prefix">
+              <input type="text" id="tradeValue" class="otd-input" inputmode="decimal" placeholder="0">
+            </div>
+            <button type="button" class="otd-tooltip-btn" data-tooltip="tradeValueTip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M9.5 9a3 3 0 0 1 5 1c0 2-3 3-3 4"/>
+                <line x1="12" y1="17" x2="12" y2="17.5"/>
+              </svg>
+            </button>
+          </div>
+          <div class="otd-tooltip" id="tradeValueTip">
+            Check KBB.com or Edmunds.com for an estimate. The dealer will appraise your vehicle.
+          </div>
+        </div>
+        <div class="otd-field">
+          <label class="otd-label" for="tradeOwed">Amount Owed</label>
+          <div class="otd-input-with-tooltip">
+            <div class="otd-input-prefix">
+              <input type="text" id="tradeOwed" class="otd-input" inputmode="decimal" placeholder="0">
+            </div>
+            <button type="button" class="otd-tooltip-btn" data-tooltip="tradeOwedTip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M9.5 9a3 3 0 0 1 5 1c0 2-3 3-3 4"/>
+                <line x1="12" y1="17" x2="12" y2="17.5"/>
+              </svg>
+            </button>
+          </div>
+          <div class="otd-tooltip" id="tradeOwedTip">
+            Call your lender for the 10-day payoff amount.
+          </div>
+        </div>
+        <div class="otd-computed" id="tradeEquityDisplay" style="display: none;">
+          <div class="otd-computed-item">
+            <span class="otd-computed-label">Equity: </span>
+            <span class="otd-computed-value" id="tradeEquityValue">$0</span>
+          </div>
+          <div class="otd-computed-item otd-tax-savings" id="tradeTaxSavings" style="display: none;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+            </svg>
+            <span class="otd-computed-label">Tax savings: </span>
+            <span class="otd-computed-value highlight" id="tradeTaxSavingsValue">$0</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Add-ons Section -->
+    <section class="otd-section">
+      <h2 class="otd-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
+        </svg>
+        Add-Ons <span class="otd-label-hint">(protection, accessories)</span>
+      </h2>
+      <div class="otd-item-list" id="addonsList"></div>
+      <div class="otd-item-selector" id="addonSelector">
+        <select class="otd-select" id="addonSelect">
+          <option value="">Select a product...</option>
+          <optgroup label="Protection Products (non-taxable)" id="addonNonTaxable"></optgroup>
+          <optgroup label="Accessories (taxable)" id="addonTaxable"></optgroup>
+        </select>
+      </div>
+      <button type="button" class="otd-add-item-btn" id="addAddonBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        Add product
+      </button>
+      <div class="otd-item-total" id="addonsTotal" style="display: none;">
+        <span>Total add-ons</span>
+        <span class="otd-item-total-amount" id="addonsTotalAmount">$0</span>
+      </div>
+    </section>
+
+    <!-- Discounts Section -->
+    <section class="otd-section">
+      <h2 class="otd-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/>
+          <line x1="7" y1="7" x2="7.01" y2="7"/>
+        </svg>
+        Discounts & Rebates
+      </h2>
+      <div class="otd-item-list" id="discountsList"></div>
+      <div class="otd-item-selector" id="discountSelector">
+        <select class="otd-select" id="discountSelect">
+          <option value="">Select a discount...</option>
+        </select>
+      </div>
+      <button type="button" class="otd-add-item-btn" id="addDiscountBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        Add discount
+      </button>
+      <div class="otd-item-total" id="discountsTotal" style="display: none;">
+        <span>Total discounts</span>
+        <span class="otd-item-total-amount" id="discountsTotalAmount">$0</span>
+      </div>
+    </section>
+
+    <!-- Special Financing Section -->
+    <section class="otd-section">
+      <button type="button" class="otd-details-toggle" id="specialFinancingToggle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+        <span class="otd-section-title-inline">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>
+          </svg>
+          Special Financing
+        </span>
+        <span class="otd-label-hint">(optional)</span>
+      </button>
+      <div class="otd-details-content" id="specialFinancingContent">
+        <p class="otd-section-note">Have a promotional APR from the manufacturer? Add it below.</p>
+        <div class="otd-item-list" id="specialAprList"></div>
+        <div class="otd-item-selector" id="specialAprSelector">
+          <div class="otd-special-apr-add">
+            <select class="otd-select otd-select-small" id="specialAprTermSelect">
+              <option value="">Select term...</option>
+            </select>
+            <div class="otd-apr-rate">
+              <input type="text" class="otd-input" id="specialAprRateInput" inputmode="decimal" placeholder="APR">
+            </div>
+            <button type="button" class="otd-confirm-btn" id="specialAprConfirmBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <button type="button" class="otd-add-item-btn" id="addSpecialAprBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Add special rate
+        </button>
+      </div>
+    </section>
+
+    <!-- Credit Tier Section -->
+    <section class="otd-section">
+      <h2 class="otd-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+          <polyline points="22 4 12 14.01 9 11.01"/>
+        </svg>
+        Your Credit
+      </h2>
+      <div class="otd-radio-group" id="creditTierGroup">
+        <label class="otd-radio-option selected" data-tier="excellent">
+          <input type="radio" name="creditTier" value="excellent" checked>
+          <span class="otd-radio-circle"></span>
+          <span class="otd-radio-label">Excellent</span>
+          <span class="otd-radio-desc">740+</span>
+        </label>
+        <label class="otd-radio-option" data-tier="good">
+          <input type="radio" name="creditTier" value="good">
+          <span class="otd-radio-circle"></span>
+          <span class="otd-radio-label">Good</span>
+          <span class="otd-radio-desc">670-739</span>
+        </label>
+        <label class="otd-radio-option" data-tier="fair">
+          <input type="radio" name="creditTier" value="fair">
+          <span class="otd-radio-circle"></span>
+          <span class="otd-radio-label">Fair</span>
+          <span class="otd-radio-desc">580-669</span>
+        </label>
+        <label class="otd-radio-option" data-tier="poor">
+          <input type="radio" name="creditTier" value="poor">
+          <span class="otd-radio-circle"></span>
+          <span class="otd-radio-label">Poor</span>
+          <span class="otd-radio-desc">&lt;580</span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Down Payment Section -->
+    <section class="otd-section">
+      <h2 class="otd-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="1" x2="12" y2="23"/>
+          <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+        </svg>
+        Down Payment
+      </h2>
+      <div class="otd-field">
+        <label class="otd-label" for="downPayment">Cash Down</label>
+        <div class="otd-input-prefix">
+          <input type="text" id="downPayment" class="otd-input" inputmode="decimal" placeholder="0">
+        </div>
+      </div>
+    </section>
+
+    <!-- Results Section -->
+    <section class="otd-section otd-results" id="resultsSection">
+      
+      <!-- Empty State (shown when no vehicle price) -->
+      <div class="otd-results-empty" id="resultsEmptyState">
+        <div class="otd-results-empty-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 6v6l4 2"/>
+          </svg>
+        </div>
+        <p class="otd-results-empty-text">Enter a vehicle price to see your estimate</p>
+      </div>
+      
+      <!-- Results Content (hidden until vehicle price entered) -->
+      <div id="resultsContent" style="display: none;">
+        <div class="otd-results-header">
+          <h2 class="otd-results-title">Estimated Out-the-Door Price</h2>
+          <div class="otd-results-amount" id="otdPrice">$0</div>
+          <div class="otd-results-label">Total amount due at signing</div>
+        </div>
+
+        <button type="button" class="otd-details-toggle otd-breakdown-toggle" id="breakdownToggle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+          View transaction breakdown
+        </button>
+        <div class="otd-details-content" id="breakdownContent">
+          <div class="otd-breakdown" id="transactionBreakdown"></div>
+        </div>
+
+        <div class="otd-finance-summary">
+          <div class="otd-finance-label">Amount to Finance</div>
+          <div class="otd-finance-amount" id="amountToFinance">$0</div>
+        </div>
+
+        <!-- Monthly Payment Section -->
+        <div class="otd-payment-section">
+          <h3 class="otd-payment-title">Monthly Payment</h3>
+          <div class="otd-term-tabs">
+            <button type="button" class="otd-term-tab" data-term="24">24 mo</button>
+            <button type="button" class="otd-term-tab" data-term="36">36 mo</button>
+            <button type="button" class="otd-term-tab" data-term="48">48 mo</button>
+            <button type="button" class="otd-term-tab selected" data-term="60">60 mo</button>
+            <button type="button" class="otd-term-tab" data-term="72">72 mo</button>
+            <button type="button" class="otd-term-tab" data-term="84">84 mo</button>
+          </div>
+          <div class="otd-payment-display">
+            <div class="otd-payment-amount" id="monthlyPayment">$0<span>/mo</span></div>
+            <div class="otd-payment-apr" id="paymentApr">@ 0.00% APR</div>
+            <div class="otd-payment-details">
+              <div class="otd-payment-detail">
+                <div class="otd-payment-detail-label">Total Interest</div>
+                <div class="otd-payment-detail-value" id="totalInterest">$0</div>
+              </div>
+              <div class="otd-payment-detail">
+                <div class="otd-payment-detail-label">Total of Payments</div>
+                <div class="otd-payment-detail-value" id="totalPayments">$0</div>
+              </div>
+            </div>
+          </div>
+          <button type="button" class="otd-details-toggle" id="compareToggle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+            Compare all terms
+          </button>
+          <div class="otd-details-content" id="compareContent">
+            <table class="otd-compare-table">
+              <thead>
+                <tr><th>Term</th><th>APR</th><th>Payment</th><th>Interest</th></tr>
+              </thead>
+              <tbody id="compareTableBody"></tbody>
+            </table>
+            <div class="otd-table-legend" id="compareTableLegend" style="display: none;">
+              * special rate
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Assumptions Section -->
+    <section class="otd-section otd-assumptions">
+      <button type="button" class="otd-details-toggle expanded">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+        Assumptions & Notes
+      </button>
+      <div class="otd-details-content expanded">
+        <ul class="otd-assumptions-list">
+          <li><strong>Tax rate</strong> based on ZIP code. Verify at <a href="https://tax.illinois.gov" target="_blank" rel="noopener">tax.illinois.gov</a></li>
+          <li><strong>Doc fee ($377)</strong> — verify with dealer</li>
+          <li><strong>ERT fee ($35)</strong>, <strong>Title ($165)</strong>, <strong>Registration ($151)</strong></li>
+          <li><strong>Interest rates</strong> are averages based on credit tier; actual rates depend on your credit history and lender</li>
+          <li><strong>Protection products</strong> (GAP, warranties) not taxable. <strong>Accessories</strong> are taxable</li>
+          <li><strong>Trade-in</strong> reduces taxable amount in Illinois</li>
+          <li>This is an <strong>estimate only</strong></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Print Button -->
+    <button type="button" class="otd-print-btn" id="printBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="6 9 6 2 18 2 18 9"/>
+        <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
+        <rect x="6" y="14" width="12" height="8"/>
+      </svg>
+      Print / Save Estimate
+    </button>
+
+  </div>
+
+  <!-- Load configuration first, then calculator logic -->
+  <script src="config.js"></script>
+  <script src="calculator.js"></script>
+</body>
+</html>
