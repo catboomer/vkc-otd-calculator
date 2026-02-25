@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Down Payment Decision Calculator | V Knows Cars</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="otd-calculator" id="dpCalculator">
+
+    <header class="otd-header">
+      <h1>Down Payment Decision Calculator</h1>
+      <p>See how much to put down vs. keep invested — for your specific loan</p>
+    </header>
+
+    <!-- SECTION 1: VEHICLE -->
+    <section class="otd-section">
+      <h2 class="otd-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>
+          <path d="M5 17H3v-6l2-4h9l4 4h3v6h-2M3 11h15"/>
+        </svg>
+        Vehicle
+      </h2>
+      <p class="otd-section-note">Enter the final negotiated price — after any discounts, rebates, or add-ons.</p>
+      <div class="otd-field">
+        <label class="otd-label" for="vehiclePrice">Purchase Price</label>
+        <div class="otd-input-prefix">
+          <input type="text" id="vehiclePrice" class="otd-input" inputmode="decimal" placeholder="0">
+        </div>
+      </div>
+      <div class="otd-field">
+        <label class="otd-label" for="zipCode">ZIP Code <span class="otd-label-hint">(for Illinois tax rate)</span></label>
+        <input type="text" id="zipCode" class="otd-input" inputmode="numeric" maxlength="5" placeholder="e.g., 60010" value="60010">
+        <div class="otd-computed" id="taxRateDisplay" style="display:none;">
+          <div class="otd-computed-item">
+            <span class="otd-computed-label">Tax rate: </span>
+            <span class="otd-computed-value" id="taxRateValue">7.00%</span>
+            <span class="otd-computed-label" id="taxRateLocation"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 2: TRADE-IN -->
+    <section class="otd-section">
+      <h2 class="otd-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M17 1l4 4-4 4M3 11V9a4 4 0 014-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 01-4 4H3"/>
+        </svg>
+        Trade-In <span class="otd-label-hint">(optional)</span>
+      </h2>
+
+      <button type="button" class="otd-add-item-btn" id="addTradeInBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        Add trade-in
+      </button>
+
+      <div id="tradeInContent" style="display:none;">
+        <div class="otd-field">
+          <div class="otd-field-header">
+            <label class="otd-label" for="tradeValue">Trade-In Value</label>
+            <button type="button" class="otd-remove-section-btn" id="removeTradeInBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+              Remove
+            </button>
+          </div>
+          <div class="otd-input-with-tooltip">
+            <div class="otd-input-prefix">
+              <input type="text" id="tradeValue" class="otd-input" inputmode="decimal" placeholder="0">
+            </div>
+            <button type="button" class="otd-tooltip-btn" data-tooltip="tradeValueTip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/><path d="M9.5 9a3 3 0 0 1 5 1c0 2-3 3-3 4"/>
+                <line x1="12" y1="17" x2="12" y2="17.5"/>
+              </svg>
+            </button>
+            <div class="dp-popover" id="tradeValueTip">
+              Check KBB.com or Edmunds.com for an estimate. In Illinois, your trade-in value reduces the taxable amount — a real saving.
+            </div>
+          </div>
+        </div>
+
+        <div class="otd-field">
+          <label class="otd-label" for="tradeOwed">Amount Owed on Trade-In</label>
+          <div class="otd-input-with-tooltip">
+            <div class="otd-input-prefix">
+              <input type="text" id="tradeOwed" class="otd-input" inputmode="decimal" placeholder="0">
+            </div>
+            <button type="button" class="otd-tooltip-btn" data-tooltip="tradeOwedTip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/><path d="M9.5 9a3 3 0 0 1 5 1c0 2-3 3-3 4"/>
+                <line x1="12" y1="17" x2="12" y2="17.5"/>
+              </svg>
+            </button>
+            <div class="dp-popover" id="tradeOwedTip">
+              The remaining loan balance on your current vehicle. If this is more than the trade value, the difference (negative equity) gets rolled into your new loan.
+            </div>
+          </div>
+        </div>
+
+        <!-- Trade equity row — inline, aligned -->
+        <div class="dp-trade-computed" id="tradeEquityDisplay" style="display:none;">
+          <div class="dp-trade-row">
+            <span class="dp-trade-label">Equity</span>
+            <span class="dp-trade-value" id="tradeEquityValue">$0</span>
+          </div>
+          <div class="dp-trade-row" id="tradeTaxSavings" style="display:none;">
+            <span class="dp-trade-label">Tax savings</span>
+            <span class="dp-trade-value highlight" id="tradeTaxSavingsValue">$0</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 3: LOAN TERMS -->
+    <section class="otd-section">
+      <h2 class="otd-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>
+        </svg>
+        Loan Terms
+      </h2>
+
+      <div class="otd-field">
+        <label class="otd-label">Loan Term</label>
+        <div class="otd-term-tabs">
+          <button type="button" class="otd-term-tab dp-term-tab" data-term="24">24 mo</button>
+          <button type="button" class="otd-term-tab dp-term-tab" data-term="36">36 mo</button>
+          <button type="button" class="otd-term-tab dp-term-tab" data-term="48">48 mo</button>
+          <button type="button" class="otd-term-tab dp-term-tab selected" data-term="60">60 mo</button>
+          <button type="button" class="otd-term-tab dp-term-tab" data-term="72">72 mo</button>
+          <button type="button" class="otd-term-tab dp-term-tab" data-term="84">84 mo</button>
+        </div>
+      </div>
+
+      <div class="otd-field">
+        <label class="otd-label">Your Credit Score</label>
+        <div class="otd-radio-group" id="creditTierGroup">
+          <label class="otd-radio-option selected" data-tier="excellent">
+            <input type="radio" name="creditTier" value="excellent" checked>
+            <span class="otd-radio-circle"></span>
+            <span class="otd-radio-label">Excellent</span>
+            <span class="otd-radio-desc">740+</span>
+          </label>
+          <label class="otd-radio-option" data-tier="good">
+            <input type="radio" name="creditTier" value="good">
+            <span class="otd-radio-circle"></span>
+            <span class="otd-radio-label">Good</span>
+            <span class="otd-radio-desc">670–739</span>
+          </label>
+          <label class="otd-radio-option" data-tier="fair">
+            <input type="radio" name="creditTier" value="fair">
+            <span class="otd-radio-circle"></span>
+            <span class="otd-radio-label">Fair</span>
+            <span class="otd-radio-desc">580–669</span>
+          </label>
+          <label class="otd-radio-option" data-tier="poor">
+            <input type="radio" name="creditTier" value="poor">
+            <span class="otd-radio-circle"></span>
+            <span class="otd-radio-label">Poor</span>
+            <span class="otd-radio-desc">&lt;580</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="otd-field">
+        <label class="otd-label" for="dpAprInput">
+          Interest Rate (APR)
+          <span class="otd-label-hint"> — pre-filled from credit tier, override if you have a specific offer</span>
+        </label>
+        <div class="dp-pct-input-wrap">
+          <input type="text" id="dpAprInput" class="otd-input" inputmode="decimal" placeholder="0.00">
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 4: DOWN PAYMENT + LIVE RESULTS (combined) -->
+    <section class="otd-section dp-interactive-section">
+      <h2 class="otd-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="1" x2="12" y2="23"/>
+          <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+        </svg>
+        Down Payment
+      </h2>
+
+      <!-- Total amount due pill -->
+      <div class="dp-otd-pill" id="dpOtdPill" style="display:none;">
+        Total amount due: <strong id="dpOtdPrice">—</strong>
+        <span class="dp-otd-pill-sub">(price + tax + fees)</span>
+      </div>
+
+      <!-- Slider control block -->
+      <div class="dp-slider-block">
+        <!-- Dollar input sits directly above slider thumb area -->
+        <div class="dp-slider-input-row">
+          <div class="otd-input-prefix dp-slider-dollar-input">
+            <input type="text" id="downPaymentAmt" class="otd-input" inputmode="decimal" placeholder="0">
+          </div>
+          <div class="dp-slider-pct-badge" id="dpSliderPct">0%</div>
+        </div>
+
+        <!-- Slider -->
+        <input type="range" id="dpSlider" class="dp-slider" min="0" max="100000" step="100" value="0">
+
+        <!-- Min/max labels flush under slider -->
+        <div class="dp-slider-minmax">
+          <span>$0 — Finance all</span>
+          <span id="dpSliderMax">—</span>
+        </div>
+      </div>
+
+      <!-- Live results strip — visible immediately as slider moves -->
+      <div class="dp-live-strip" id="dpLiveStrip" style="display:none;">
+        <div class="dp-live-item">
+          <span class="dp-live-label">Monthly payment</span>
+          <span class="dp-live-value" id="dpLiveMonthly">—</span>
+        </div>
+        <div class="dp-live-divider"></div>
+        <div class="dp-live-item">
+          <span class="dp-live-label">Amount financed</span>
+          <span class="dp-live-value" id="dpLiveFinanced">—</span>
+        </div>
+        <div class="dp-live-divider"></div>
+        <div class="dp-live-item">
+          <span class="dp-live-label">Cash to invest</span>
+          <span class="dp-live-value" id="dpLiveInvested">—</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 5: INVESTMENT ASSUMPTIONS -->
+    <section class="otd-section">
+      <h2 class="otd-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        Investment Assumptions
+      </h2>
+      <p class="otd-section-note">The cash you don't put down is assumed to be invested. Adjust these to match your situation.</p>
+
+      <div class="dp-field-row">
+        <!-- Expected Return -->
+        <div class="otd-field">
+          <label class="otd-label" for="dpInvestmentReturn">
+            Expected Annual Return <span class="otd-label-hint">(before tax)</span>
+          </label>
+          <div class="dp-input-with-popover">
+            <div class="dp-pct-input-wrap">
+              <input type="text" id="dpInvestmentReturn" class="otd-input" inputmode="decimal" placeholder="7.0">
+            </div>
+            <button type="button" class="otd-tooltip-btn" data-tooltip="returnTip" aria-label="Help">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/><path d="M9.5 9a3 3 0 0 1 5 1c0 2-3 3-3 4"/>
+                <line x1="12" y1="17" x2="12" y2="17.5"/>
+              </svg>
+            </button>
+            <div class="dp-popover" id="returnTip">
+              Historical U.S. stock market avg: ~10%/yr. Conservative 70/30 portfolio: ~7%/yr. High-yield savings/CDs: ~4–5%. Past performance doesn't guarantee future results.
+            </div>
+          </div>
+        </div>
+
+        <!-- Capital Gains Tax -->
+        <div class="otd-field">
+          <label class="otd-label" for="dpGainsTaxRate">Capital Gains Tax Rate</label>
+          <div class="dp-input-with-popover">
+            <div class="dp-pct-input-wrap">
+              <input type="text" id="dpGainsTaxRate" class="otd-input" inputmode="decimal" placeholder="15">
+            </div>
+            <button type="button" class="otd-tooltip-btn" data-tooltip="taxTip" aria-label="Help">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/><path d="M9.5 9a3 3 0 0 1 5 1c0 2-3 3-3 4"/>
+                <line x1="12" y1="17" x2="12" y2="17.5"/>
+              </svg>
+            </button>
+            <div class="dp-popover" id="taxTip">
+              Long-term gains (held 1+ yr): 0% under ~$47k income, 15% for most people, 20% for high earners. Use 0% for tax-advantaged accounts (401k, IRA).
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 6: OWNERSHIP COSTS -->
+    <section class="otd-section">
+      <h2 class="otd-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+        Ownership Costs
+      </h2>
+      <p class="otd-section-note">These are estimates. Adjust them to match the vehicle you're considering.</p>
+
+      <div class="otd-field">
+        <label class="otd-label" for="dpResidualPct">
+          Estimated Resale Value at End of Term
+          <span class="otd-label-hint"> (% of purchase price)</span>
+        </label>
+        <div class="dp-input-with-popover">
+          <div class="dp-pct-input-wrap">
+            <input type="text" id="dpResidualPct" class="otd-input" inputmode="decimal" placeholder="41">
+          </div>
+          <button type="button" class="otd-tooltip-btn" data-tooltip="residualTip" aria-label="Help">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><path d="M9.5 9a3 3 0 0 1 5 1c0 2-3 3-3 4"/>
+              <line x1="12" y1="17" x2="12" y2="17.5"/>
+            </svg>
+          </button>
+          <div class="dp-popover" id="residualTip">
+            Broad averages: 65% at 2 yrs, 57% at 3, 49% at 4, 41% at 5, 34% at 6, 28% at 7. Trucks/luxury hold value better; economy sedans and EVs depreciate faster. Check Edmunds or KBB.
+          </div>
+        </div>
+      </div>
+
+      <div class="otd-field" style="margin-top:1rem;">
+        <button type="button" class="otd-details-toggle" id="maintenanceToggle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+          Annual maintenance costs
+          <span class="otd-label-hint" style="text-transform:none;letter-spacing:normal;">— click to review and edit</span>
+        </button>
+        <div class="otd-details-content" id="maintenanceContent">
+          <p style="font-size:0.85rem;color:var(--vkc-text-light);margin-bottom:0.75rem;">
+            Estimates based on AAA and Consumer Reports averages for a typical new vehicle. Covers oil changes, tires, brakes, and routine repairs — not insurance or fuel.
+          </p>
+          <div class="dp-maintenance-grid" id="maintenanceGrid"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 7: RESULTS -->
+    <section class="otd-section otd-results" id="dpResultsSection">
+      <h2 class="otd-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        Your Results
+      </h2>
+
+      <!-- Empty state -->
+      <div class="dp-empty-state" id="dpResultsEmpty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+        </svg>
+        <p>Enter a purchase price above to see your estimate</p>
+      </div>
+
+      <!-- Results content -->
+      <div id="dpResultsContent" style="display:none;">
+
+        <!-- WATERFALL: the core concept made visual -->
+        <div class="dp-waterfall" id="dpWaterfall">
+          <!-- Populated by JS -->
+        </div>
+
+        <!-- Break-even verdict badge -->
+        <div class="dp-verdict" id="dpVerdict">
+          <!-- Populated by JS -->
+        </div>
+
+        <!-- Full breakdown (collapsible) -->
+        <button type="button" class="otd-details-toggle" id="dpDetailToggle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+          View full breakdown
+        </button>
+        <div class="otd-details-content" id="dpDetailContent">
+          <div id="dpDetailBreakdown"></div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Assumptions -->
+    <section class="otd-section otd-assumptions">
+      <button type="button" class="otd-details-toggle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+        Assumptions & Notes
+      </button>
+      <div class="otd-details-content">
+        <ul class="otd-assumptions-list">
+          <li><strong>Purchase price</strong> should be your final negotiated number — after rebates, dealer discounts, and any add-ons.</li>
+          <li><strong>Tax rate</strong> based on ZIP code (Illinois only). Verify at <a href="https://tax.illinois.gov" target="_blank" rel="noopener">tax.illinois.gov</a></li>
+          <li><strong>Fees assumed:</strong> Doc ($377), ERT ($35), Title ($165), Registration ($151). Verify with dealer.</li>
+          <li><strong>Investment return</strong> is projected — not guaranteed. Past market performance does not predict future results.</li>
+          <li><strong>Residual value</strong> defaults are broad averages. Actual resale value depends on make, model, condition, and market.</li>
+          <li><strong>Maintenance</strong> estimates are averages for a new vehicle (AAA/Consumer Reports). EVs, luxury, and high-mileage vehicles vary significantly.</li>
+          <li><strong>Net Financial Position</strong> = ending assets (resale + investment) minus total cash out (down payment + payments + maintenance). Negative does not mean the decision was wrong — cars are a necessity, not just a financial asset.</li>
+          <li>This is an <strong>estimate only</strong>. Consult a financial advisor for personalized advice.</li>
+        </ul>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="config.js"></script>
+  <script src="calculator.js"></script>
+  <script src="dp-calculator.js"></script>
+</body>
+</html>

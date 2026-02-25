@@ -274,3 +274,77 @@ const TAX_RATES = {};
     console.log('→ Using fallback rate of 6.25%');
   }
 })();
+
+// ============================================
+// DOWN PAYMENT DECISION CALCULATOR DEFAULTS
+// Edit these values to update defaults without
+// touching any calculator logic.
+// ============================================
+
+CONFIG.downPaymentCalc = {
+
+  // ------------------------------------------
+  // INVESTMENT ASSUMPTIONS
+  // ------------------------------------------
+
+  // Expected annual return on invested cash (decimal)
+  // 7% = moderately aggressive 70/30 stocks/bonds portfolio (historical avg ~10%, conservative est ~6-7%)
+  defaultInvestmentReturn: 0.07,
+
+  // Long-term capital gains tax rate applied to investment gains (decimal)
+  // IRS tiers: 0% (<$47k income), 15% (most people), 20% (high earners)
+  defaultGainsTaxRate: 0.15,
+
+  // ------------------------------------------
+  // DEFAULT DOWN PAYMENT
+  // ------------------------------------------
+
+  // Starting slider position as a fraction of total amount due
+  // 0.10 = 10% down
+  defaultDownPaymentPct: 0.10,
+
+  // ------------------------------------------
+  // RESIDUAL VALUE BY LOAN TERM
+  // Expressed as % of purchase price remaining at end of term.
+  // Sources: Edmunds, Black Book, KBB long-term depreciation averages.
+  // These are broad averages; luxury/trucks hold value better, economy/EVs worse.
+  // ------------------------------------------
+  residualByTerm: {
+    24: 0.65,  // ~65% after 2 years  (approx. 15-18% depreciation/yr early on)
+    36: 0.57,  // ~57% after 3 years
+    48: 0.49,  // ~49% after 4 years
+    60: 0.41,  // ~41% after 5 years
+    72: 0.34,  // ~34% after 6 years
+    84: 0.28   // ~28% after 7 years
+  },
+
+  // ------------------------------------------
+  // ANNUAL MAINTENANCE COST BY YEAR (new vehicle)
+  // Sources: AAA Cost of Ownership, Consumer Reports averages.
+  // Year 1-2: warranty covers most repairs; tires/oil/filters only
+  // Year 3-4: tires, brakes, battery, routine service
+  // Year 5+: more repairs likely as warranty expires
+  // ------------------------------------------
+  maintenanceByYear: {
+    1:  500,   // Oil changes, wiper blades, cabin filter — warranty covers the rest
+    2:  600,   // Similar to year 1; possible tire rotation/balance
+    3:  900,   // First major tire replacement likely; brakes starting
+    4: 1000,   // Brakes, battery possible, 4yr service
+    5: 1200,   // Out of warranty — repairs start adding up
+    6: 1400,   // Higher likelihood of suspension, starter, sensors
+    7: 1600    // Older car — meaningful repair risk
+  },
+
+  // ------------------------------------------
+  // AVERAGE APR BY CREDIT TIER AND TERM (2025)
+  // These are shown as editable defaults in the calculator.
+  // Source: Experian State of the Auto Finance Market Q4 2024,
+  // Bankrate national averages Jan 2025.
+  // Note: CONFIG.creditTiers already has APRs; these are the same
+  // values but surfaced explicitly here for easy updating.
+  // The calculator reads from CONFIG.creditTiers at runtime.
+  // Update CONFIG.creditTiers above to change APR defaults.
+  // ------------------------------------------
+  aprNote: 'Edit CONFIG.creditTiers above to change APR defaults by credit tier and term.'
+
+};
