@@ -719,6 +719,7 @@ input[type="range"].dp-slider::-moz-range-thumb {
 }
 .dp-field-row .otd-field {
   flex: 1;
+  min-height: 2.6rem;
 }
 /* Move hint to its own line so labels don't wrap at different heights */
 .dp-field-row .otd-label .otd-label-hint {
