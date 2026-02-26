@@ -694,6 +694,16 @@ function dpInitHeightObserver() {
   document.addEventListener('click', () => setTimeout(postHeight, 50));
 }
 
+ // Forward scroll events to parent page
+  window.addEventListener('wheel', function(e) {
+    window.parent.postMessage({
+      type: 'vkc-wheel',
+      deltaY: e.deltaY,
+      deltaX: e.deltaX,
+      deltaMode: e.deltaMode
+    }, '*');
+  }, { passive: true });
+
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', dpInitHeightObserver);
 } else {
