@@ -715,7 +715,7 @@ input[type="range"].dp-slider::-moz-range-thumb {
 .dp-field-row {
   display: flex;
   gap: 1rem;
-  align-items: flex-end;
+  align-items: flex-start;
 }
 .dp-field-row .otd-field {
   flex: 1;
