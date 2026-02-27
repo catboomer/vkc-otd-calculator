@@ -201,6 +201,10 @@ function calculate() {
  * Update all results displays
  */
 function updateResults() {
+  // Guard: if this is the DP calculator page, OTD-specific elements won't exist.
+  // dp-calculator.js calls dpUpdateResults() instead.
+  if (!document.getElementById('otdPrice')) return;
+
   const hasVehiclePrice = state.vehiclePrice > 0;
   const results = calculate();
   
@@ -753,7 +757,8 @@ function toggleTradeIn(show) {
     state.tradeOwed = 0;
     document.getElementById('tradeValue').value = '';
     document.getElementById('tradeOwed').value = '';
-    document.getElementById('tradeDesc').value = '';
+    const tradeDescEl = document.getElementById('tradeDesc');
+    if (tradeDescEl) tradeDescEl.value = '';
     
     addBtn.style.display = 'flex';
     content.style.display = 'none';
@@ -998,11 +1003,17 @@ function init() {
   updateResults();
 }
 
-// Run initialization when DOM is ready
+// Run initialization when DOM is ready.
+// Guard: only run the OTD init when the OTD-specific elements are present
+// (i.e. this is calculator.html, not dp-calculator.html).
+function _shouldInitOtd() {
+  return !!document.getElementById('addonsList');
+}
+
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', () => { if (_shouldInitOtd()) init(); });
 } else {
-  init();
+  if (_shouldInitOtd()) init();
 }
 
 

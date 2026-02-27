@@ -685,24 +685,23 @@ if (document.readyState === 'loading') {
 // ============================================
 function dpInitHeightObserver() {
   if (window.self === window.top) return;
+
   function postHeight() {
-    window.parent.postMessage({ type: 'vkc-calculator-height', height: document.documentElement.scrollHeight }, '*');
+    // scrollHeight never shrinks — temporarily force height:auto to get true content height
+    document.documentElement.style.height = 'auto';
+    document.body.style.height = 'auto';
+    const height = document.body.getBoundingClientRect().height;
+    document.documentElement.style.height = '';
+    document.body.style.height = '';
+    window.parent.postMessage({ type: 'vkc-calculator-height', height: Math.ceil(height) }, '*');
   }
+
   setTimeout(postHeight, 100);
   new ResizeObserver(postHeight).observe(document.body);
   window.addEventListener('resize', postHeight);
-  document.addEventListener('click', () => setTimeout(postHeight, 50));
+  // Wait for CSS transitions to finish before measuring (collapse animations ~300ms)
+  document.addEventListener('click', () => setTimeout(postHeight, 350));
 }
-
- // Forward scroll events to parent page
-  window.addEventListener('wheel', function(e) {
-    window.parent.postMessage({
-      type: 'vkc-wheel',
-      deltaY: e.deltaY,
-      deltaX: e.deltaX,
-      deltaMode: e.deltaMode
-    }, '*');
-  }, { passive: true });
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', dpInitHeightObserver);
