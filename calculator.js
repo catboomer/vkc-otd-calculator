@@ -4,7 +4,7 @@
  * Main calculator logic file.
  * Requires config.js to be loaded first.
  * 
- * @version 1.0.0
+ * @version 1.1.0
  * @author V Knows Cars
  */
 
@@ -109,10 +109,20 @@ function calculateMonthlyPayment(principal, annualRate, termMonths) {
 function calculate() {
   const results = {};
   
-  // 1. Calculate selling price (vehicle price minus discounts)
-  const totalDiscounts = state.discounts.reduce((sum, d) => sum + d.amount, 0);
-  results.sellingPrice = Math.max(0, state.vehiclePrice - totalDiscounts);
-  results.totalDiscounts = totalDiscounts;
+  // 1. Calculate selling price
+  // Dealer discounts reduce selling price (and thus taxable amount)
+  // Manufacturer rebates are applied AFTER tax — they don't reduce taxable amount
+  const dealerDiscounts = state.discounts
+    .filter(d => d.id !== 'manufacturer')
+    .reduce((sum, d) => sum + d.amount, 0);
+  const manufacturerRebate = state.discounts
+    .filter(d => d.id === 'manufacturer')
+    .reduce((sum, d) => sum + d.amount, 0);
+
+  results.sellingPrice = Math.max(0, state.vehiclePrice - dealerDiscounts);
+  results.totalDiscounts = dealerDiscounts + manufacturerRebate;
+  results.manufacturerRebate = manufacturerRebate;
+  results.dealerDiscounts = dealerDiscounts;
   
   // 2. Calculate add-ons (separate taxable and non-taxable)
   const taxableAddons = state.addons
@@ -165,7 +175,8 @@ function calculate() {
     results.nonTaxableFees;
   
   // 10. Calculate out-the-door price
-  results.outTheDoor = results.totalBeforeTrade - results.tradeEquity;
+  // Manufacturer rebate applied here, after tax has been calculated
+  results.outTheDoor = results.totalBeforeTrade - results.tradeEquity - results.manufacturerRebate;
   
   // 11. Calculate amount to finance
   results.amountToFinance = Math.max(0, results.outTheDoor - state.downPayment);
@@ -253,14 +264,16 @@ function updateBreakdown(results) {
     <span>${formatCurrency(state.vehiclePrice)}</span>
   </div>`;
   
-  // Discounts (if any)
+  // Discounts (if any) — dealer discounts shown here (pre-tax)
   if (state.discounts.length > 0) {
-    state.discounts.forEach(d => {
-      html += `<div class="otd-breakdown-row indent">
-        <span>− ${d.name}</span>
-        <span class="negative">−${formatCurrency(d.amount)}</span>
-      </div>`;
-    });
+    state.discounts
+      .filter(d => d.id !== 'manufacturer')
+      .forEach(d => {
+        html += `<div class="otd-breakdown-row indent">
+          <span>− ${d.name}</span>
+          <span class="negative">−${formatCurrency(d.amount)}</span>
+        </div>`;
+      });
     html += `<div class="otd-breakdown-row subtotal">
       <span>Selling price</span>
       <span>${formatCurrency(results.sellingPrice)}</span>
@@ -344,6 +357,14 @@ function updateBreakdown(results) {
     html += `<div class="otd-breakdown-row">
       <span>− Trade-in equity</span>
       <span class="${cls}">${sign}${formatCurrency(Math.abs(results.tradeEquity))}</span>
+    </div>`;
+  }
+
+  // Manufacturer rebate — applied after tax
+  if (results.manufacturerRebate > 0) {
+    html += `<div class="otd-breakdown-row">
+      <span>− Manufacturer Rebate</span>
+      <span class="negative">−${formatCurrency(results.manufacturerRebate)}</span>
     </div>`;
   }
   
