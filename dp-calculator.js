@@ -1,627 +1,984 @@
 /**
- * V Knows Cars — Down Payment Decision Calculator
- * Load order: config.js → calculator.js → dp-calculator.js
+ * V Knows Cars - Out-the-Door Calculator
+ * 
+ * Main calculator logic file.
+ * Requires config.js to be loaded first.
+ * 
+ * @version 1.1.0
+ * @author V Knows Cars
  */
-'use strict';
 
 // ============================================
-// STATE EXTENSIONS
+// STATE MANAGEMENT
 // ============================================
-Object.assign(state, {
-  selectedTerm:     60,
-  investmentReturn: CONFIG.downPaymentCalc.defaultInvestmentReturn,
-  gainsTaxRate:     CONFIG.downPaymentCalc.defaultGainsTaxRate,
-  residualPct:      CONFIG.downPaymentCalc.residualByTerm[60],
-  maintenanceCosts: { ...CONFIG.downPaymentCalc.maintenanceByYear }
-});
+
+const state = {
+  vehiclePrice: 0,
+  zipCode: '',
+  taxRate: CONFIG.defaultTaxRate,
+  taxLocation: '',
+  isCookCounty: false,
+  tradeInActive: false,  // Whether trade-in section is expanded
+  tradeValue: 0,
+  tradeOwed: 0,
+  addons: [],           // Array of { id, name, price, taxable }
+  discounts: [],        // Array of { id, name, amount }
+  specialAprs: [],      // Array of { term, rate } - e.g., { term: 36, rate: 1.9 }
+  creditTier: 'excellent',
+  downPayment: 0,
+  selectedTerm: 60
+};
+
+
+// ============================================
+// UTILITY FUNCTIONS
+// ============================================
+
+/**
+ * Parse a string or number to a valid number
+ * Removes non-numeric characters except decimal point
+ */
+function parseNumber(value) {
+  if (!value) return 0;
+  const cleaned = value.toString().replace(/[^0-9.]/g, '');
+  return parseFloat(cleaned) || 0;
+}
+
+/**
+ * Format a number as currency (no decimals)
+ */
+function formatCurrency(amount) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(amount);
+}
+
+/**
+ * Format a decimal rate as percentage string
+ */
+function formatPercent(rate) {
+  return (rate * 100).toFixed(2) + '%';
+}
 
 
 // ============================================
 // CALCULATION ENGINE
 // ============================================
-function dpCalculate() {
-  const otd   = calculate();          // shared OTD engine from calculator.js
-  const term  = state.selectedTerm;
-  const years = term / 12;
 
-  const totalAmountDue = otd.outTheDoor;
-  const downPayment    = Math.min(state.downPayment, totalAmountDue);
-  const amountFinanced = Math.max(0, totalAmountDue - downPayment);
-  const cashInvested   = totalAmountDue - downPayment;
-
-  const aprInfo = getAprForTerm(term);
-  const apr     = aprInfo.apr !== undefined ? aprInfo.apr : aprInfo.rate;
-  const monthly = calculateMonthlyPayment(amountFinanced, apr, term);
-  const totalPmts     = monthly * term;
-  const totalInterest = Math.max(0, totalPmts - amountFinanced);
-
-  // Investment: lump sum grows at gross rate, only the GAIN is taxed at end
-  const r  = state.investmentReturn;
-  const fv = cashInvested > 0 ? cashInvested * Math.pow(1 + r, years) : 0;
-  const investmentGain     = Math.max(0, fv - cashInvested);
-  const investmentTax      = investmentGain * state.gainsTaxRate;
-  const investmentValueNet = fv - investmentTax;
-
-  // Maintenance — sum years covered by term, pro-rate fractional final year
-  let totalMaintenance = 0;
-  for (let y = 1; y <= Math.floor(years); y++) {
-    totalMaintenance += (state.maintenanceCosts[Math.min(y, 7)] || 0);
+/**
+ * Get the APR for a specific term
+ * Returns { rate, isSpecial } - isSpecial indicates if it's a promotional rate
+ */
+function getAprForTerm(term) {
+  // Check for special promotional rate for this exact term
+  const specialRate = state.specialAprs.find(s => s.term === term);
+  if (specialRate) {
+    return { rate: specialRate.rate, isSpecial: true };
   }
-  const frac = years - Math.floor(years);
-  if (frac > 0) {
-    totalMaintenance += (state.maintenanceCosts[Math.min(Math.floor(years) + 1, 7)] || 0) * frac;
+  
+  // Fall back to credit tier rates
+  return { rate: CONFIG.creditTiers[state.creditTier].rates[term], isSpecial: false };
+}
+
+/**
+ * Calculate monthly payment using standard amortization formula
+ */
+function calculateMonthlyPayment(principal, annualRate, termMonths) {
+  if (principal <= 0) return 0;
+  
+  const monthlyRate = annualRate / 100 / 12;
+  
+  if (monthlyRate === 0) {
+    return principal / termMonths;
   }
+  
+  const payment = principal * 
+    (monthlyRate * Math.pow(1 + monthlyRate, termMonths)) / 
+    (Math.pow(1 + monthlyRate, termMonths) - 1);
+  
+  return isFinite(payment) ? payment : 0;
+}
 
-  const residualValue = state.vehiclePrice * state.residualPct;
-  const totalCashOut  = downPayment + totalPmts + totalMaintenance;
-  const endingAssets  = residualValue + investmentValueNet;
-  const netPosition   = endingAssets - totalCashOut;
-  const afterTaxReturn = r * (1 - state.gainsTaxRate);
+/**
+ * Main calculation function
+ * Returns an object with all calculated values
+ */
+function calculate() {
+  const results = {};
+  
+  // 1. Calculate selling price
+  // Dealer discounts reduce selling price (and thus taxable amount)
+  // Manufacturer rebates are applied AFTER tax — they don't reduce taxable amount
+  const dealerDiscounts = state.discounts
+    .filter(d => d.id !== 'manufacturer')
+    .reduce((sum, d) => sum + d.amount, 0);
+  const manufacturerRebate = state.discounts
+    .filter(d => d.id === 'manufacturer')
+    .reduce((sum, d) => sum + d.amount, 0);
 
-  return {
-    totalAmountDue, outTheDoor: otd.outTheDoor, otdBreakdown: otd,
-    downPayment, downPaymentPct: totalAmountDue > 0 ? downPayment / totalAmountDue : 0,
-    amountFinanced, apr, isSpecialApr: aprInfo.isSpecial,
-    monthlyPayment: monthly, totalPayments: totalPmts, totalInterest,
-    cashInvested, investmentGain, investmentTax, investmentValueNet,
-    totalMaintenance, residualValue, years, term,
-    totalCashOut, endingAssets, netPosition, afterTaxReturn,
-    hasPrice: state.vehiclePrice > 0
-  };
+  results.sellingPrice = Math.max(0, state.vehiclePrice - dealerDiscounts);
+  results.totalDiscounts = dealerDiscounts + manufacturerRebate;
+  results.manufacturerRebate = manufacturerRebate;
+  results.dealerDiscounts = dealerDiscounts;
+  
+  // 2. Calculate add-ons (separate taxable and non-taxable)
+  const taxableAddons = state.addons
+    .filter(a => a.taxable)
+    .reduce((sum, a) => sum + a.price, 0);
+  const nonTaxableAddons = state.addons
+    .filter(a => !a.taxable)
+    .reduce((sum, a) => sum + a.price, 0);
+  
+  results.taxableAddons = taxableAddons;
+  results.nonTaxableAddons = nonTaxableAddons;
+  results.totalAddons = taxableAddons + nonTaxableAddons;
+  
+  // 3. Calculate vehicle subtotal
+  results.vehicleSubtotal = results.sellingPrice + results.totalAddons;
+  
+  // 4. Calculate fees
+  results.taxableFees = CONFIG.fees.docPrep.amount + CONFIG.fees.ert.amount;
+  results.nonTaxableFees = CONFIG.fees.title.amount + CONFIG.fees.registration.amount;
+  
+  // Add Cook County fee if applicable
+  if (state.isCookCounty) {
+    results.nonTaxableFees += CONFIG.fees.cookCounty.amount;
+  }
+  
+  // 5. Calculate taxable amount (before trade-in credit)
+  // In Illinois: Vehicle + Taxable Add-ons + Taxable Fees
+  results.taxableBeforeTrade = results.sellingPrice + taxableAddons + results.taxableFees;
+  
+  // 6. Apply trade-in credit (Illinois allows trade-in to reduce taxable amount)
+  results.tradeValue = state.tradeValue;
+  results.tradeOwed = state.tradeOwed;
+  results.tradeEquity = state.tradeValue - state.tradeOwed;
+  
+  // Taxable amount is reduced by trade-in value
+  results.taxableAmount = Math.max(0, results.taxableBeforeTrade - state.tradeValue);
+  
+  // 7. Calculate sales tax
+  results.taxRate = state.taxRate;
+  results.salesTax = results.taxableAmount * state.taxRate;
+  
+  // 8. Calculate trade-in tax savings (for display)
+  results.tradeTaxSavings = Math.min(state.tradeValue, results.taxableBeforeTrade) * state.taxRate;
+  
+  // 9. Calculate total before trade equity
+  results.totalBeforeTrade = 
+    results.vehicleSubtotal + 
+    results.taxableFees + 
+    results.salesTax + 
+    results.nonTaxableFees;
+  
+  // 10. Calculate out-the-door price
+  // Manufacturer rebate applied here, after tax has been calculated
+  results.outTheDoor = results.totalBeforeTrade - results.tradeEquity - results.manufacturerRebate;
+  
+  // 11. Calculate amount to finance
+  results.amountToFinance = Math.max(0, results.outTheDoor - state.downPayment);
+  
+  // 12. Calculate monthly payments for all terms
+  results.payments = {};
+  const terms = [24, 36, 48, 60, 72, 84];
+  
+  terms.forEach(term => {
+    const aprInfo = getAprForTerm(term);
+    const payment = calculateMonthlyPayment(results.amountToFinance, aprInfo.rate, term);
+    const totalPayments = payment * term;
+    const totalInterest = totalPayments - results.amountToFinance;
+    
+    results.payments[term] = {
+      apr: aprInfo.rate,
+      isSpecial: aprInfo.isSpecial,
+      payment: payment,
+      totalPayments: totalPayments,
+      totalInterest: totalInterest
+    };
+  });
+  
+  return results;
 }
 
 
 // ============================================
-// SLIDER SYNC
+// UI UPDATE FUNCTIONS
 // ============================================
-function syncSliderFromDollar(dollarValue) {
-  const otd     = calculate();
-  const max     = Math.max(0, otd.outTheDoor);
-  const clamped = Math.min(Math.max(0, dollarValue), max);
-  const slider  = document.getElementById('dpSlider');
-  const dollarEl = document.getElementById('downPaymentAmt');
-  if (slider) { slider.max = Math.round(max); slider.value = Math.round(clamped); }
-  if (dollarEl && document.activeElement !== dollarEl) {
-    dollarEl.value = clamped > 0 ? Math.round(clamped) : '';
+
+/**
+ * Update all results displays
+ */
+function updateResults() {
+  // Guard: if this is the DP calculator page, OTD-specific elements won't exist.
+  // dp-calculator.js calls dpUpdateResults() instead.
+  if (!document.getElementById('otdPrice')) return;
+
+  const hasVehiclePrice = state.vehiclePrice > 0;
+  const results = calculate();
+  
+  // Show/hide results based on whether we have a vehicle price
+  const resultsSection = document.getElementById('resultsSection');
+  const emptyState = document.getElementById('resultsEmptyState');
+  const resultsContent = document.getElementById('resultsContent');
+  
+  if (!hasVehiclePrice) {
+    // Show empty state
+    if (emptyState) emptyState.style.display = 'block';
+    if (resultsContent) resultsContent.style.display = 'none';
+    return;
   }
-  state.downPayment = clamped;
-  updateSliderBadge(clamped, max);
+  
+  // Show results content
+  if (emptyState) emptyState.style.display = 'none';
+  if (resultsContent) resultsContent.style.display = 'block';
+  
+  // Update main OTD price
+  document.getElementById('otdPrice').textContent = formatCurrency(results.outTheDoor);
+  
+  // Update amount to finance
+  document.getElementById('amountToFinance').textContent = formatCurrency(results.amountToFinance);
+  
+  // Update detailed breakdown
+  updateBreakdown(results);
+  
+  // Update payment display
+  updatePaymentDisplay(results);
+  
+  // Update comparison table
+  updateCompareTable(results);
 }
 
-function syncSliderFromSlider(sliderValue) {
-  const val     = parseFloat(sliderValue) || 0;
-  const dollarEl = document.getElementById('downPaymentAmt');
-  state.downPayment = val;
-  if (dollarEl) dollarEl.value = val > 0 ? Math.round(val) : '';
-  const otd = calculate();
-  updateSliderBadge(val, Math.max(1, otd.outTheDoor));
-}
-
-function updateSliderBadge(value, max) {
-  const badge = document.getElementById('dpSliderPct');
-  if (!badge || max <= 0) return;
-  badge.textContent = Math.round((value / max) * 100) + '%';
-}
-
-function updateSliderMax() {
-  const otd    = calculate();
-  const max    = Math.max(0, otd.outTheDoor);
-  const slider = document.getElementById('dpSlider');
-  const maxEl  = document.getElementById('dpSliderMax');
-  const pill   = document.getElementById('dpOtdPill');
-  const otdEl  = document.getElementById('dpOtdPrice');
-
-  if (slider) {
-    slider.max = Math.round(max);
-    const clamped = Math.min(parseFloat(slider.value) || 0, max);
-    slider.value = Math.round(clamped);
-    state.downPayment = clamped;
-  }
-  if (maxEl) maxEl.textContent = formatCurrency(max);
-  if (otdEl) otdEl.textContent = formatCurrency(max);
-  if (pill)  pill.style.display = max > 0 ? 'flex' : 'none';
-
-  const dollarEl = document.getElementById('downPaymentAmt');
-  if (dollarEl && parseFloat(dollarEl.value) > max) dollarEl.value = Math.round(max);
-
-  updateSliderBadge(state.downPayment, max);
-}
-
-
-// ============================================
-// MAINTENANCE ROWS
-// ============================================
-function renderMaintenanceRows() {
-  const container = document.getElementById('maintenanceGrid');
-  if (!container) return;
-  const years = Math.min(7, Math.ceil(state.selectedTerm / 12));
-  const descs = {
-    1:'Under warranty — oil, filters', 2:'Under warranty — tires, rotation',
-    3:'Tires, brakes starting',         4:'Brakes, battery, 4yr service',
-    5:'Out of warranty — repairs start', 6:'Suspension, sensors, misc',
-    7:'Higher repair risk'
-  };
+/**
+ * Update the transaction breakdown section
+ */
+function updateBreakdown(results) {
+  const breakdown = document.getElementById('transactionBreakdown');
   let html = '';
-  for (let y = 1; y <= years; y++) {
-    const val = state.maintenanceCosts[y] || 0;
-    html += `<div class="dp-maintenance-row">
-      <span class="dp-maintenance-label">Year ${y}</span>
-      <span class="dp-maintenance-desc">${descs[y]||''}</span>
-      <div class="dp-maintenance-input-wrap otd-input-prefix">
-        <input type="text" class="otd-input dp-maint-input" data-year="${y}" inputmode="decimal" value="${val}">
-      </div>
+  
+  // Vehicle price
+  html += `<div class="otd-breakdown-row">
+    <span>Vehicle price</span>
+    <span>${formatCurrency(state.vehiclePrice)}</span>
+  </div>`;
+  
+  // Discounts (if any) — dealer discounts shown here (pre-tax)
+  if (state.discounts.length > 0) {
+    state.discounts
+      .filter(d => d.id !== 'manufacturer')
+      .forEach(d => {
+        html += `<div class="otd-breakdown-row indent">
+          <span>− ${d.name}</span>
+          <span class="negative">−${formatCurrency(d.amount)}</span>
+        </div>`;
+      });
+    html += `<div class="otd-breakdown-row subtotal">
+      <span>Selling price</span>
+      <span>${formatCurrency(results.sellingPrice)}</span>
     </div>`;
   }
-  container.innerHTML = html;
-  container.querySelectorAll('.dp-maint-input').forEach(input => {
-    input.addEventListener('input', e => {
-      state.maintenanceCosts[parseInt(e.target.dataset.year)] = parseNumber(e.target.value);
-      dpUpdateResults();
+  
+  // Add-ons (if any)
+  if (state.addons.length > 0) {
+    state.addons.forEach(a => {
+      const taxNote = a.taxable ? '' : ' ★';
+      html += `<div class="otd-breakdown-row indent">
+        <span>+ ${a.name}${taxNote}</span>
+        <span>${formatCurrency(a.price)}</span>
+      </div>`;
+    });
+  }
+  
+  // Subtotal
+  html += `<div class="otd-breakdown-row subtotal">
+    <span>Subtotal</span>
+    <span>${formatCurrency(results.vehicleSubtotal)}</span>
+  </div>`;
+  
+  // Taxable fees
+  html += `<div class="otd-breakdown-row indent">
+    <span>+ Doc preparation</span>
+    <span>${formatCurrency(CONFIG.fees.docPrep.amount)}</span>
+  </div>`;
+  html += `<div class="otd-breakdown-row indent">
+    <span>+ ERT fee</span>
+    <span>${formatCurrency(CONFIG.fees.ert.amount)}</span>
+  </div>`;
+  
+  // Trade-in tax credit (if applicable)
+  if (state.tradeValue > 0) {
+    html += `<div class="otd-breakdown-row indent">
+      <span>− Trade-in (tax credit)</span>
+      <span class="negative">−${formatCurrency(state.tradeValue)}</span>
+    </div>`;
+  }
+  
+  // Taxable amount
+  html += `<div class="otd-breakdown-row subtotal">
+    <span>Taxable amount</span>
+    <span>${formatCurrency(results.taxableAmount)}</span>
+  </div>`;
+  
+  // Sales tax
+  html += `<div class="otd-breakdown-row">
+    <span>Sales tax (${formatPercent(results.taxRate)})</span>
+    <span>${formatCurrency(results.salesTax)}</span>
+  </div>`;
+  
+  // Non-taxable fees
+  html += `<div class="otd-breakdown-row indent">
+    <span>+ Title</span>
+    <span>${formatCurrency(CONFIG.fees.title.amount)}</span>
+  </div>`;
+  html += `<div class="otd-breakdown-row indent">
+    <span>+ Registration</span>
+    <span>${formatCurrency(CONFIG.fees.registration.amount)}</span>
+  </div>`;
+  
+  if (state.isCookCounty) {
+    html += `<div class="otd-breakdown-row indent">
+      <span>+ Cook County fee</span>
+      <span>${formatCurrency(CONFIG.fees.cookCounty.amount)}</span>
+    </div>`;
+  }
+  
+  // Total before trade equity
+  html += `<div class="otd-breakdown-row subtotal">
+    <span>Total</span>
+    <span>${formatCurrency(results.totalBeforeTrade)}</span>
+  </div>`;
+  
+  // Trade-in equity (if applicable)
+  if (results.tradeEquity !== 0) {
+    const sign = results.tradeEquity > 0 ? '−' : '+';
+    const cls = results.tradeEquity > 0 ? 'negative' : '';
+    html += `<div class="otd-breakdown-row">
+      <span>− Trade-in equity</span>
+      <span class="${cls}">${sign}${formatCurrency(Math.abs(results.tradeEquity))}</span>
+    </div>`;
+  }
+
+  // Manufacturer rebate — applied after tax
+  if (results.manufacturerRebate > 0) {
+    html += `<div class="otd-breakdown-row">
+      <span>− Manufacturer Rebate</span>
+      <span class="negative">−${formatCurrency(results.manufacturerRebate)}</span>
+    </div>`;
+  }
+  
+  // Down payment (if applicable)
+  if (state.downPayment > 0) {
+    html += `<div class="otd-breakdown-row">
+      <span>− Down payment</span>
+      <span class="negative">−${formatCurrency(state.downPayment)}</span>
+    </div>`;
+  }
+  
+  // Final OTD price
+  html += `<div class="otd-breakdown-row total">
+    <span>Out-the-Door Price</span>
+    <span>${formatCurrency(results.outTheDoor)}</span>
+  </div>`;
+  
+  // Legend for non-taxable items
+  if (state.addons.some(a => !a.taxable)) {
+    html += `<div class="otd-breakdown-legend">★ Non-taxable product</div>`;
+  }
+  
+  breakdown.innerHTML = html;
+}
+
+/**
+ * Update the monthly payment display for selected term
+ */
+function updatePaymentDisplay(results) {
+  const term = state.selectedTerm;
+  const payment = results.payments[term];
+  const specialMarker = payment.isSpecial ? ' *' : '';
+  
+  document.getElementById('monthlyPayment').innerHTML = 
+    `${formatCurrency(payment.payment)}<span>/mo</span>`;
+  document.getElementById('paymentApr').textContent = 
+    `@ ${payment.apr.toFixed(2)}% APR${specialMarker}`;
+  document.getElementById('totalInterest').textContent = 
+    formatCurrency(payment.totalInterest);
+  document.getElementById('totalPayments').textContent = 
+    formatCurrency(payment.totalPayments);
+}
+
+/**
+ * Update the comparison table with all terms
+ */
+function updateCompareTable(results) {
+  const tbody = document.getElementById('compareTableBody');
+  const terms = [24, 36, 48, 60, 72, 84];
+  let hasSpecialRates = false;
+  
+  let html = '';
+  terms.forEach(term => {
+    const p = results.payments[term];
+    const isSelected = term === state.selectedTerm;
+    const specialMarker = p.isSpecial ? ' *' : '';
+    if (p.isSpecial) hasSpecialRates = true;
+    
+    html += `<tr class="${isSelected ? 'selected' : ''}" data-term="${term}">
+      <td>${term} mo</td>
+      <td>${p.apr.toFixed(2)}%${specialMarker}</td>
+      <td>${formatCurrency(p.payment)}</td>
+      <td>${formatCurrency(p.totalInterest)}</td>
+    </tr>`;
+  });
+  
+  tbody.innerHTML = html;
+  
+  // Show/hide special rates legend
+  const legend = document.getElementById('compareTableLegend');
+  if (legend) {
+    legend.style.display = hasSpecialRates ? 'block' : 'none';
+  }
+  
+  // Add click handlers to rows
+  tbody.querySelectorAll('tr').forEach(row => {
+    row.addEventListener('click', () => {
+      selectTerm(parseInt(row.dataset.term));
     });
   });
 }
 
-
-// ============================================
-// RESULTS UPDATE
-// ============================================
-function dpUpdateResults() {
-  const r = dpCalculate();
-
-  const emptyEl   = document.getElementById('dpResultsEmpty');
-  const contentEl = document.getElementById('dpResultsContent');
-  const stripEl   = document.getElementById('dpLiveStrip');
-
-  if (!r.hasPrice) {
-    if (emptyEl)   emptyEl.style.display   = 'block';
-    if (contentEl) contentEl.style.display = 'none';
-    if (stripEl)   stripEl.style.display   = 'none';
-    return;
-  }
-
-  if (emptyEl)   emptyEl.style.display   = 'none';
-  if (contentEl) contentEl.style.display = 'block';
-
-  // Live strip (inside slider section)
-  if (stripEl) {
-    stripEl.style.display = 'flex';
-    setEl('dpLiveMonthly',  formatCurrency(r.monthlyPayment) + '/mo');
-    setEl('dpLiveFinanced', formatCurrency(r.amountFinanced));
-    setEl('dpLiveInvested', formatCurrency(r.cashInvested));
-  }
-
-  // OTD display
-  setEl('dpOtdPrice', formatCurrency(r.outTheDoor));
-
-  // Waterfall results
-  updateWaterfall(r);
-
-  // Verdict
-  updateVerdict(r);
-
-  // Detail breakdown
-  updateDetailBreakdown(r);
-}
-
-function setEl(id, html) {
-  const el = document.getElementById(id);
-  if (el) el.innerHTML = html;
-}
-
-
-// ============================================
-// RESULTS — single-column clear narrative
-// ============================================
-function updateWaterfall(r) {
-  const el = document.getElementById('dpWaterfall');
-  if (!el) return;
-
-  const fmt     = formatCurrency;
-  const pct     = Math.round(r.downPaymentPct * 100);
-  const termYrs = r.years === Math.floor(r.years)
-    ? r.years + ' yr' + (r.years !== 1 ? 's' : '')
-    : r.years.toFixed(1) + ' yrs';
-
-  // Core comparison: does investing the cash earn MORE than the loan costs?
-  // investmentGainNet = profit from investing (after tax), NOT the full ending value
-  // loanInterest = cost of carrying the loan
-  const investmentGainNet = r.investmentValueNet - r.cashInvested;
-  const loanInterest      = r.totalInterest;
-  const investNetBeat     = investmentGainNet - loanInterest; // + = financing wins, - = cash down wins
-
-  const red   = v => `<span class="wf-red">${v}</span>`;
-  const green = v => `<span class="wf-green">${v}</span>`;
-  const muted = v => `<span class="wf-muted">${v}</span>`;
-
-  let html = '';
-
-  // ── Header ────────────────────────────────────────────────
-  html += `<div class="wf-header">
-    <div class="wf-header-main">
-      ${pct === 0
-        ? `Finance <strong>${fmt(r.totalAmountDue)}</strong> — keep <strong>${fmt(r.cashInvested)}</strong> in investments`
-        : pct >= 100
-        ? `Pay <strong>${fmt(r.totalAmountDue)}</strong> cash in full — no loan`
-        : `Put down <strong>${fmt(r.downPayment)}</strong> (${pct}%) — finance <strong>${fmt(r.amountFinanced)}</strong>`
-      }
-    </div>
-    <div class="wf-header-sub">@ ${r.apr.toFixed(2)}% APR · ${r.term} months</div>
-  </div>`;
-
-  // ── What you spend ────────────────────────────────────────
-  html += `<div class="wf-section">
-    <div class="wf-section-title">What you'll spend</div>`;
-
-  if (r.downPayment > 0) {
-    html += wfRow('Cash down today', red(`−${fmt(r.downPayment)}`));
-  }
-  if (r.amountFinanced > 0) {
-    html += wfRow(
-      `${r.term} monthly payments of ${fmt(r.monthlyPayment)}`,
-      red(`−${fmt(r.totalPayments)}`)
-    );
-    html += wfRow(
-      `↳ of which, loan interest`,
-      red(`−${fmt(r.totalInterest)}`),
-      false, 'wf-row-sub'
-    );
-  }
-  html += wfRow(`Car maintenance over ${termYrs}`, red(`−${fmt(r.totalMaintenance)}`));
-  html += `<div class="wf-subtotal-row">
-    <span>Total spent</span>
-    <span class="wf-red">−${fmt(r.totalCashOut)}</span>
-  </div></div>`;
-
-  // ── What comes back ───────────────────────────────────────
-  html += `<div class="wf-section">
-    <div class="wf-section-title">What comes back to you</div>`;
-
-  html += wfRow('Car resale value at end of term', green(`+${fmt(r.residualValue)}`));
-
-  if (r.cashInvested > 0) {
-    const grossFV = r.investmentValueNet + r.investmentTax;
-    html += wfRow(
-      `Investments grow at ${(state.investmentReturn*100).toFixed(1)}%/yr over ${termYrs}`,
-      green(`+${fmt(grossFV)}`)
-    );
-    if (r.investmentTax > 0) {
-      html += wfRow(
-        `↳ minus capital gains tax (${(state.gainsTaxRate*100).toFixed(0)}%)`,
-        red(`−${fmt(r.investmentTax)}`), false, 'wf-row-sub'
-      );
-      html += wfRow(
-        `↳ investment value after tax`,
-        green(`+${fmt(r.investmentValueNet)}`), false, 'wf-row-sub'
-      );
+/**
+ * Update trade-in equity display
+ */
+function updateTradeEquity() {
+  const equity = state.tradeValue - state.tradeOwed;
+  const display = document.getElementById('tradeEquityDisplay');
+  const equityValue = document.getElementById('tradeEquityValue');
+  const taxSavings = document.getElementById('tradeTaxSavings');
+  const taxSavingsValue = document.getElementById('tradeTaxSavingsValue');
+  
+  if (state.tradeValue > 0 || state.tradeOwed > 0) {
+    display.style.display = 'flex';
+    equityValue.textContent = formatCurrency(equity);
+    equityValue.className = `otd-computed-value ${equity >= 0 ? 'positive' : 'negative'}`;
+    
+    if (state.tradeValue > 0) {
+      const savings = state.tradeValue * state.taxRate;
+      taxSavings.style.display = 'flex';
+      taxSavingsValue.textContent = formatCurrency(savings);
+    } else {
+      taxSavings.style.display = 'none';
     }
   } else {
-    html += wfRow('Investments', muted('—'), false, 'wf-row-muted');
+    display.style.display = 'none';
   }
+}
 
-  html += `<div class="wf-subtotal-row">
-    <span>Total coming back</span>
-    <span class="wf-green">+${fmt(r.endingAssets)}</span>
-  </div></div>`;
-
-  // ── Net cost ──────────────────────────────────────────────
-  const netAbs = Math.abs(r.netPosition);
-  const netPos = r.netPosition >= 0;
-  html += `<div class="wf-net ${netPos ? 'wf-net-positive' : 'wf-net-negative'}">
-    <div class="wf-net-label">Net cost of owning this car</div>
-    <div class="wf-net-number ${netPos ? 'wf-green' : 'wf-red'}">${netPos ? '+' : '−'}${fmt(netAbs)}</div>
-    <div class="wf-net-sub">
-      ${netPos
-        ? `After resale and investment returns, you net <strong>+${fmt(netAbs)}</strong> — your investments more than offset your costs`
-        : `After all returns, this car costs you <strong>${fmt(netAbs)}</strong> net over ${termYrs} — normal for vehicle ownership`}
-    </div>
-  </div>`;
-
-  // ── The key question: finance or pay more down? ───────────
-  if (r.cashInvested > 0 && r.amountFinanced > 0) {
-    html += `<div class="wf-insight">
-      <div class="wf-insight-title">Is it worth financing instead of paying more cash down?</div>
-      <div class="wf-insight-explain">
-        By not putting that ${fmt(r.cashInvested)} down, you're paying loan interest — but keeping the cash invested.
-        Does the investment profit outweigh what the loan costs you?
-      </div>
-      <div class="wf-insight-rows">
-        <div class="wf-insight-row">
-          <span>Loan interest over ${termYrs}</span>
-          <span>${red('−' + fmt(loanInterest))}</span>
-        </div>
-        <div class="wf-insight-row">
-          <span>Investment profit over ${termYrs} (after tax)</span>
-          <span>${green('+' + fmt(investmentGainNet))}</span>
-        </div>
-        <div class="wf-insight-row wf-insight-total">
-          <span>${investNetBeat >= 0 ? 'Financing ahead by' : 'Paying more down would save'}</span>
-          <span class="${investNetBeat >= 0 ? 'wf-green' : 'wf-red'}">${investNetBeat >= 0 ? '+' : ''}${fmt(Math.abs(investNetBeat))}</span>
-        </div>
-      </div>
-      <div class="wf-insight-note">
-        ${investNetBeat >= 0
-          ? `Yes — your investments earn ${fmt(Math.abs(investNetBeat))} more than the loan costs. 
-             Keeping cash in the market and financing the car is the better financial move over ${termYrs}.`
-          : `No — the loan costs you ${fmt(Math.abs(investNetBeat))} more than your investments would earn. 
-             Putting more cash down upfront would leave you better off over ${termYrs}.`
-        }
-      </div>
-    </div>`;
+/**
+ * Update tax rate display based on ZIP code
+ * Uses the Illinois sales tax lookup system
+ */
+function updateTaxRate() {
+  const display = document.getElementById('taxRateDisplay');
+  const rateValue = document.getElementById('taxRateValue');
+  const location = document.getElementById('taxRateLocation');
+  
+  if (state.zipCode.length === 5) {
+    // Use the new tax lookup system
+    const taxInfo = taxLookup.getTaxRate(state.zipCode);
+    
+    state.taxRate = taxInfo.rate;
+    state.taxLocation = taxInfo.location;
+    state.isCookCounty = taxInfo.county === 'COOK' || taxInfo.county === 'COOK_CHICAGO';
+    
+    rateValue.textContent = formatPercent(taxInfo.rate);
+    
+    // Show location with estimate warning if needed
+    if (taxInfo.isEstimate) {
+      location.textContent = `(${taxInfo.location})*`;
+      location.title = 'ZIP code not found - using statewide rate. Verify with dealer.';
+      location.style.fontStyle = 'italic';
+    } else {
+      location.textContent = `(${taxInfo.location})`;
+      location.title = '';
+      location.style.fontStyle = 'normal';
+    }
+    
+    display.style.display = 'flex';
+  } else {
+    display.style.display = 'none';
   }
-
-  el.innerHTML = html;
+  
+  // Tax rate affects trade-in savings display
+  updateTradeEquity();
 }
 
-function wfRow(label, valueHtml, hasSub, extraClass) {
-  return `<div class="wf-row ${extraClass||''}">
-    <span class="wf-row-label">${label}</span>
-    <span class="wf-row-value">${valueHtml}</span>
-  </div>`;
+/**
+ * Update totals for add-ons and discounts
+ */
+function updateTotals() {
+  // Add-ons total
+  const addonsTotal = state.addons.reduce((sum, a) => sum + a.price, 0);
+  const addonsDisplay = document.getElementById('addonsTotal');
+  const addonsAmount = document.getElementById('addonsTotalAmount');
+  addonsDisplay.style.display = state.addons.length > 0 ? 'flex' : 'none';
+  addonsAmount.textContent = formatCurrency(addonsTotal);
+  
+  // Discounts total
+  const discountsTotal = state.discounts.reduce((sum, d) => sum + d.amount, 0);
+  const discountsDisplay = document.getElementById('discountsTotal');
+  const discountsAmount = document.getElementById('discountsTotalAmount');
+  discountsDisplay.style.display = state.discounts.length > 0 ? 'flex' : 'none';
+  discountsAmount.textContent = formatCurrency(discountsTotal);
 }
 
-
-// ============================================
-// VERDICT BADGE
-// ============================================
-function updateVerdict(r) {
-  const el = document.getElementById('dpVerdict');
-  if (!el) return;
-
-  if (r.cashInvested <= 0 || r.amountFinanced <= 0) {
-    el.style.display = 'none';
-    return;
-  }
-  el.style.display = 'block';
-
-  const investmentGainNet = r.investmentValueNet - r.cashInvested;
-  const investNetBeat     = investmentGainNet - r.totalInterest;
-  const investWins        = investNetBeat >= 0;
-
-  el.className  = 'dp-verdict ' + (investWins ? 'dp-verdict-invest' : 'dp-verdict-paydown');
-  el.innerHTML  = investWins
-    ? `<strong>📈 Financing makes sense here</strong> — your investment profit outpaces the loan interest`
-    : `<strong>💵 More cash down would save you money</strong> — the loan interest exceeds what you'd earn investing`;
-}
-
-
-// ============================================
-// DETAIL BREAKDOWN (collapsible)
-// ============================================
-function updateDetailBreakdown(r) {
-  const el = document.getElementById('dpDetailBreakdown');
-  if (!el) return;
-  const fmt = formatCurrency;
-  el.innerHTML = `
-    <table class="dp-detail-table">
-      <tr class="dp-detail-section"><td colspan="2">Transaction</td></tr>
-      <tr><td>Vehicle price</td><td>${fmt(state.vehiclePrice)}</td></tr>
-      <tr><td>Sales tax (${formatPercent(r.otdBreakdown.taxRate)})</td><td>${fmt(r.otdBreakdown.salesTax)}</td></tr>
-      <tr><td>Doc fee</td><td>${fmt(CONFIG.fees.docPrep.amount)}</td></tr>
-      <tr><td>ERT fee</td><td>${fmt(CONFIG.fees.ert.amount)}</td></tr>
-      <tr><td>Title</td><td>${fmt(CONFIG.fees.title.amount)}</td></tr>
-      <tr><td>Registration</td><td>${fmt(CONFIG.fees.registration.amount)}</td></tr>
-      ${state.isCookCounty ? `<tr><td>Cook County fee</td><td>${fmt(CONFIG.fees.cookCounty.amount)}</td></tr>` : ''}
-      ${r.otdBreakdown.tradeEquity > 0 ? `<tr><td>Trade-in equity</td><td class="green">−${fmt(r.otdBreakdown.tradeEquity)}</td></tr>` : ''}
-      ${r.otdBreakdown.tradeEquity < 0 ? `<tr><td>Negative equity rolled in</td><td class="red">+${fmt(Math.abs(r.otdBreakdown.tradeEquity))}</td></tr>` : ''}
-
-      <tr class="dp-detail-section"><td colspan="2">Financing</td></tr>
-      <tr><td>Down payment</td><td>−${fmt(r.downPayment)}</td></tr>
-      <tr><td>Amount financed</td><td>${fmt(r.amountFinanced)}</td></tr>
-      <tr><td>Monthly payment</td><td>${fmt(r.monthlyPayment)}/mo</td></tr>
-      <tr><td>Total of payments</td><td>${fmt(r.totalPayments)}</td></tr>
-      <tr><td>Total interest paid</td><td class="red">${fmt(r.totalInterest)}</td></tr>
-
-      <tr class="dp-detail-section"><td colspan="2">Investment</td></tr>
-      <tr><td>Cash invested</td><td>${fmt(r.cashInvested)}</td></tr>
-      <tr><td>Growth (${(state.investmentReturn*100).toFixed(1)}%/yr, ${r.years} yrs)</td><td class="green">+${fmt(r.investmentGain)}</td></tr>
-      <tr><td>Capital gains tax (${(state.gainsTaxRate*100).toFixed(0)}%)</td><td class="red">−${fmt(r.investmentTax)}</td></tr>
-      <tr><td>Net investment value</td><td>${fmt(r.investmentValueNet)}</td></tr>
-
-      <tr class="dp-detail-section"><td colspan="2">Ownership</td></tr>
-      <tr><td>Total maintenance</td><td class="red">−${fmt(r.totalMaintenance)}</td></tr>
-      <tr><td>Estimated resale value</td><td class="green">+${fmt(r.residualValue)}</td></tr>
-
-      <tr class="dp-detail-section"><td colspan="2">Summary</td></tr>
-      <tr><td>Total cash out</td><td class="red">−${fmt(r.totalCashOut)}</td></tr>
-      <tr><td>Ending assets</td><td class="green">+${fmt(r.endingAssets)}</td></tr>
-      <tr class="dp-detail-total">
-        <td>Net financial position</td>
-        <td class="${r.netPosition >= 0 ? 'green' : 'red'}">${r.netPosition >= 0 ? '+' : '−'}${fmt(Math.abs(r.netPosition))}</td>
-      </tr>
-    </table>
-    <p style="font-size:0.78rem;color:var(--vkc-text-light);margin-top:0.75rem;font-style:italic;">
-      Net = ending assets (resale + investment) minus total cash out (down + payments + maintenance).
-    </p>`;
-}
-
-
-// ============================================
-// TERM SELECTION
-// ============================================
-function selectDpTerm(term) {
+/**
+ * Select a payment term
+ */
+function selectTerm(term) {
   state.selectedTerm = term;
-  document.querySelectorAll('.dp-term-tab').forEach(tab => {
+  
+  // Update tab selection
+  document.querySelectorAll('.otd-term-tab').forEach(tab => {
     tab.classList.toggle('selected', parseInt(tab.dataset.term) === term);
   });
-
-  const residualInput = document.getElementById('dpResidualPct');
-  if (residualInput && residualInput.dataset.userEdited !== 'true') {
-    residualInput.value = (CONFIG.downPaymentCalc.residualByTerm[term] * 100).toFixed(0);
-    state.residualPct   = CONFIG.downPaymentCalc.residualByTerm[term];
-  }
-
-  const aprInput = document.getElementById('dpAprInput');
-  if (aprInput && aprInput.dataset.userEdited !== 'true') {
-    const info = getAprForTerm(term);
-    aprInput.value = (info.apr !== undefined ? info.apr : info.rate).toFixed(2);
-  }
-
-  renderMaintenanceRows();
-  updateSliderMax();
-  dpUpdateResults();
+  
+  updateResults();
 }
 
 
 // ============================================
-// EVENT WIRING
+// LIST MANAGEMENT (Add-ons, Discounts)
 // ============================================
-function dpInitEventListeners() {
 
-  // Vehicle price — must set state here (calculator.js init is guarded off)
-  const vp = document.getElementById('vehiclePrice');
-  if (vp) vp.addEventListener('input', e => {
-    state.vehiclePrice = parseNumber(e.target.value);
-    updateSliderMax();
-    dpUpdateResults();
+/**
+ * Render the add-ons list
+ */
+function renderAddonsList() {
+  const list = document.getElementById('addonsList');
+  
+  if (state.addons.length === 0) {
+    list.innerHTML = '';
+    return;
+  }
+  
+  list.innerHTML = state.addons.map((addon, index) => `
+    <div class="otd-item-row" data-index="${index}">
+      <span class="otd-item-name">${addon.name}</span>
+      <div class="otd-item-price otd-input-prefix">
+        <input type="text" class="otd-input addon-price" 
+               data-index="${index}" 
+               inputmode="decimal" 
+               value="${addon.price || ''}">
+      </div>
+      <button type="button" class="otd-item-remove" data-index="${index}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+  `).join('');
+  
+  // Add event listeners for price inputs
+  list.querySelectorAll('.addon-price').forEach(input => {
+    input.addEventListener('input', (e) => {
+      const index = parseInt(e.target.dataset.index);
+      state.addons[index].price = parseNumber(e.target.value);
+      updateTotals();
+      updateResults();
+    });
   });
+  
+  // Add event listeners for remove buttons
+  list.querySelectorAll('.otd-item-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const index = parseInt(e.currentTarget.dataset.index);
+      state.addons.splice(index, 1);
+      renderAddonsList();
+      updateTotals();
+      updateResults();
+      populateAddonSelect();
+    });
+  });
+}
 
-  // ZIP code
-  const zip = document.getElementById('zipCode');
-  if (zip) zip.addEventListener('input', e => {
+/**
+ * Render the discounts list
+ */
+function renderDiscountsList() {
+  const list = document.getElementById('discountsList');
+  
+  if (state.discounts.length === 0) {
+    list.innerHTML = '';
+    return;
+  }
+  
+  list.innerHTML = state.discounts.map((discount, index) => `
+    <div class="otd-item-row" data-index="${index}">
+      <span class="otd-item-name">${discount.name}</span>
+      <div class="otd-item-price otd-input-prefix">
+        <input type="text" class="otd-input discount-amount" 
+               data-index="${index}" 
+               inputmode="decimal" 
+               value="${discount.amount || ''}">
+      </div>
+      <button type="button" class="otd-item-remove" data-index="${index}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+  `).join('');
+  
+  // Add event listeners for amount inputs
+  list.querySelectorAll('.discount-amount').forEach(input => {
+    input.addEventListener('input', (e) => {
+      const index = parseInt(e.target.dataset.index);
+      state.discounts[index].amount = parseNumber(e.target.value);
+      updateTotals();
+      updateResults();
+    });
+  });
+  
+  // Add event listeners for remove buttons
+  list.querySelectorAll('.otd-item-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const index = parseInt(e.currentTarget.dataset.index);
+      state.discounts.splice(index, 1);
+      renderDiscountsList();
+      updateTotals();
+      updateResults();
+      populateDiscountSelect();
+    });
+  });
+}
+
+/**
+ * Populate the add-on select dropdown
+ */
+function populateAddonSelect() {
+  const taxableGroup = document.getElementById('addonTaxable');
+  const nonTaxableGroup = document.getElementById('addonNonTaxable');
+  const usedIds = state.addons.map(a => a.id);
+  
+  // Populate taxable products
+  taxableGroup.innerHTML = CONFIG.products.taxable
+    .filter(p => !usedIds.includes(p.id))
+    .map(p => `<option value="${p.id}" data-taxable="true">${p.name}</option>`)
+    .join('');
+  
+  // Populate non-taxable products
+  nonTaxableGroup.innerHTML = CONFIG.products.nonTaxable
+    .filter(p => !usedIds.includes(p.id))
+    .map(p => `<option value="${p.id}" data-taxable="false">${p.name}</option>`)
+    .join('');
+}
+
+/**
+ * Populate the discount select dropdown
+ */
+function populateDiscountSelect() {
+  const select = document.getElementById('discountSelect');
+  const usedIds = state.discounts.map(d => d.id);
+  
+  select.innerHTML = '<option value="">Select a discount...</option>' +
+    CONFIG.discounts
+      .filter(d => !usedIds.includes(d.id))
+      .map(d => `<option value="${d.id}">${d.name}</option>`)
+      .join('');
+}
+
+/**
+ * Render the special APR list (sorted by term)
+ */
+function renderSpecialAprList() {
+  const list = document.getElementById('specialAprList');
+  
+  if (state.specialAprs.length === 0) {
+    list.innerHTML = '';
+    return;
+  }
+  
+  // Sort by term
+  const sorted = [...state.specialAprs].sort((a, b) => a.term - b.term);
+  
+  list.innerHTML = sorted.map((apr, index) => `
+    <div class="otd-item-row" data-term="${apr.term}">
+      <span class="otd-item-name">${apr.term} months</span>
+      <div class="otd-apr-rate">
+        <input type="text" class="otd-input special-apr-input" 
+               data-term="${apr.term}" 
+               inputmode="decimal" 
+               value="${apr.rate}">
+      </div>
+      <button type="button" class="otd-item-remove" data-term="${apr.term}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+  `).join('');
+  
+  // Add event listeners for rate inputs
+  list.querySelectorAll('.special-apr-input').forEach(input => {
+    input.addEventListener('input', (e) => {
+      const term = parseInt(e.target.dataset.term);
+      const apr = state.specialAprs.find(a => a.term === term);
+      if (apr) {
+        apr.rate = parseNumber(e.target.value);
+        updateResults();
+      }
+    });
+  });
+  
+  // Add event listeners for remove buttons
+  list.querySelectorAll('.otd-item-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const term = parseInt(e.currentTarget.dataset.term);
+      state.specialAprs = state.specialAprs.filter(a => a.term !== term);
+      renderSpecialAprList();
+      updateResults();
+      populateSpecialAprSelect();
+    });
+  });
+}
+
+/**
+ * Populate the special APR term select dropdown
+ */
+function populateSpecialAprSelect() {
+  const select = document.getElementById('specialAprTermSelect');
+  const usedTerms = state.specialAprs.map(a => a.term);
+  
+  select.innerHTML = '<option value="">Select term...</option>' +
+    CONFIG.loanTerms
+      .filter(term => !usedTerms.includes(term))
+      .map(term => `<option value="${term}">${term} months</option>`)
+      .join('');
+}
+
+/**
+ * Toggle trade-in section visibility
+ */
+function toggleTradeIn(show) {
+  state.tradeInActive = show;
+  
+  const addBtn = document.getElementById('addTradeInBtn');
+  const content = document.getElementById('tradeInContent');
+  
+  if (show) {
+    addBtn.style.display = 'none';
+    content.style.display = 'block';
+  } else {
+    // Clear values when hiding
+    state.tradeValue = 0;
+    state.tradeOwed = 0;
+    document.getElementById('tradeValue').value = '';
+    document.getElementById('tradeOwed').value = '';
+    const tradeDescEl = document.getElementById('tradeDesc');
+    if (tradeDescEl) tradeDescEl.value = '';
+    
+    addBtn.style.display = 'flex';
+    content.style.display = 'none';
+    
+    // Hide equity display
+    document.getElementById('tradeEquityDisplay').style.display = 'none';
+  }
+  
+  updateResults();
+}
+
+
+// ============================================
+// EVENT LISTENERS
+// ============================================
+
+/**
+ * Initialize all event listeners
+ */
+function initEventListeners() {
+  // Vehicle Price
+  document.getElementById('vehiclePrice').addEventListener('input', (e) => {
+    state.vehiclePrice = parseNumber(e.target.value);
+    updateResults();
+  });
+  
+  // ZIP Code
+  document.getElementById('zipCode').addEventListener('input', (e) => {
     state.zipCode = e.target.value.replace(/\D/g, '').slice(0, 5);
     e.target.value = state.zipCode;
     updateTaxRate();
-    updateTradeEquity();
-    updateSliderMax();
-    dpUpdateResults();
+    updateResults();
   });
-
-  // Trade-in values
-  const tv = document.getElementById('tradeValue');
-  const to = document.getElementById('tradeOwed');
-  if (tv) tv.addEventListener('input', e => {
+  
+  // Trade-in Value
+  document.getElementById('tradeValue').addEventListener('input', (e) => {
     state.tradeValue = parseNumber(e.target.value);
     updateTradeEquity();
-    updateSliderMax();
-    dpUpdateResults();
+    updateResults();
   });
-  if (to) to.addEventListener('input', e => {
+  
+  // Trade-in Amount Owed
+  document.getElementById('tradeOwed').addEventListener('input', (e) => {
     state.tradeOwed = parseNumber(e.target.value);
     updateTradeEquity();
-    updateSliderMax();
-    dpUpdateResults();
+    updateResults();
   });
-
-  // Trade-in toggle
-  const addTradeBtn    = document.getElementById('addTradeInBtn');
-  const removeTradeBtn = document.getElementById('removeTradeInBtn');
-  if (addTradeBtn) addTradeBtn.addEventListener('click', () => {
-    toggleTradeIn(true);
-    updateSliderMax();
-    dpUpdateResults();
+  
+  // Down Payment
+  document.getElementById('downPayment').addEventListener('input', (e) => {
+    state.downPayment = parseNumber(e.target.value);
+    updateResults();
   });
-  if (removeTradeBtn) removeTradeBtn.addEventListener('click', () => {
-    toggleTradeIn(false);   // clears state, collapses section, hides equity display
-    updateSliderMax();
-    dpUpdateResults();
-  });
-
-  // Term tabs
-  document.querySelectorAll('.dp-term-tab').forEach(tab => {
-    tab.addEventListener('click', () => selectDpTerm(parseInt(tab.dataset.term)));
-  });
-
-  // Credit tier radios
+  
+  // Credit Tier Radio Buttons
   document.querySelectorAll('.otd-radio-option').forEach(option => {
     option.addEventListener('click', () => {
-      document.querySelectorAll('.otd-radio-option').forEach(o => o.classList.remove('selected'));
+      document.querySelectorAll('.otd-radio-option').forEach(o => {
+        o.classList.remove('selected');
+      });
       option.classList.add('selected');
       option.querySelector('input').checked = true;
       state.creditTier = option.dataset.tier;
-      const aprInput = document.getElementById('dpAprInput');
-      if (aprInput && aprInput.dataset.userEdited !== 'true') {
-        const info = getAprForTerm(state.selectedTerm);
-        aprInput.value = (info.apr !== undefined ? info.apr : info.rate).toFixed(2);
+      updateResults();
+    });
+  });
+  
+  // Term Tabs
+  document.querySelectorAll('.otd-term-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      selectTerm(parseInt(tab.dataset.term));
+    });
+  });
+  
+  // Add-on Button & Select
+  const addAddonBtn = document.getElementById('addAddonBtn');
+  const addonSelector = document.getElementById('addonSelector');
+  const addonSelect = document.getElementById('addonSelect');
+  
+  addAddonBtn.addEventListener('click', () => {
+    addonSelector.classList.toggle('active');
+    if (addonSelector.classList.contains('active')) {
+      addonSelect.focus();
+    }
+  });
+  
+  addonSelect.addEventListener('change', (e) => {
+    const id = e.target.value;
+    if (!id) return;
+    
+    const option = e.target.options[e.target.selectedIndex];
+    const name = option.textContent;
+    const taxable = option.dataset.taxable === 'true';
+    
+    state.addons.push({ id, name, price: 0, taxable });
+    renderAddonsList();
+    updateTotals();
+    updateResults();
+    populateAddonSelect();
+    
+    addonSelect.value = '';
+    addonSelector.classList.remove('active');
+    
+    // Focus the new price input
+    setTimeout(() => {
+      const inputs = document.querySelectorAll('.addon-price');
+      if (inputs.length > 0) {
+        inputs[inputs.length - 1].focus();
       }
-      dpUpdateResults();
-    });
+    }, 50);
   });
-
-  // APR override
-  const aprInput = document.getElementById('dpAprInput');
-  if (aprInput) {
-    aprInput.addEventListener('input', e => {
-      e.target.dataset.userEdited = 'true';
-      const rate = parseNumber(e.target.value);
-      state.specialAprs = state.specialAprs.filter(a => a.term !== state.selectedTerm);
-      if (rate > 0) state.specialAprs.push({ term: state.selectedTerm, rate });
-      dpUpdateResults();
-    });
-    aprInput.addEventListener('blur', e => {
-      if (!e.target.value) {
-        e.target.dataset.userEdited = 'false';
-        state.specialAprs = state.specialAprs.filter(a => a.term !== state.selectedTerm);
-        const info = getAprForTerm(state.selectedTerm);
-        e.target.value = (info.apr !== undefined ? info.apr : info.rate).toFixed(2);
-        dpUpdateResults();
+  
+  // Discount Button & Select
+  const addDiscountBtn = document.getElementById('addDiscountBtn');
+  const discountSelector = document.getElementById('discountSelector');
+  const discountSelect = document.getElementById('discountSelect');
+  
+  addDiscountBtn.addEventListener('click', () => {
+    discountSelector.classList.toggle('active');
+    if (discountSelector.classList.contains('active')) {
+      discountSelect.focus();
+    }
+  });
+  
+  discountSelect.addEventListener('change', (e) => {
+    const id = e.target.value;
+    if (!id) return;
+    
+    const option = e.target.options[e.target.selectedIndex];
+    const name = option.textContent;
+    
+    state.discounts.push({ id, name, amount: 0 });
+    renderDiscountsList();
+    updateTotals();
+    updateResults();
+    populateDiscountSelect();
+    
+    discountSelect.value = '';
+    discountSelector.classList.remove('active');
+    
+    // Focus the new amount input
+    setTimeout(() => {
+      const inputs = document.querySelectorAll('.discount-amount');
+      if (inputs.length > 0) {
+        inputs[inputs.length - 1].focus();
       }
-    });
-  }
-
-  // Down payment dollar input
-  const dpAmt = document.getElementById('downPaymentAmt');
-  if (dpAmt) dpAmt.addEventListener('input', e => {
-    syncSliderFromDollar(parseNumber(e.target.value));
-    dpUpdateResults();
+    }, 50);
   });
-
-  // Down payment slider
-  const slider = document.getElementById('dpSlider');
-  if (slider) slider.addEventListener('input', e => {
-    syncSliderFromSlider(e.target.value);
-    dpUpdateResults();
+  
+  // Special APR Button & Select
+  const addSpecialAprBtn = document.getElementById('addSpecialAprBtn');
+  const specialAprSelector = document.getElementById('specialAprSelector');
+  const specialAprTermSelect = document.getElementById('specialAprTermSelect');
+  const specialAprRateInput = document.getElementById('specialAprRateInput');
+  const specialAprConfirmBtn = document.getElementById('specialAprConfirmBtn');
+  
+  addSpecialAprBtn.addEventListener('click', () => {
+    specialAprSelector.classList.toggle('active');
+    if (specialAprSelector.classList.contains('active')) {
+      specialAprTermSelect.focus();
+      specialAprRateInput.value = '';
+    }
   });
-
-  // Investment return
-  const ir = document.getElementById('dpInvestmentReturn');
-  if (ir) ir.addEventListener('input', e => {
-    state.investmentReturn = parseNumber(e.target.value) / 100;
-    dpUpdateResults();
+  
+  specialAprConfirmBtn.addEventListener('click', () => {
+    const term = parseInt(specialAprTermSelect.value);
+    const rate = parseNumber(specialAprRateInput.value);
+    
+    if (!term || rate <= 0) return;
+    
+    state.specialAprs.push({ term, rate });
+    renderSpecialAprList();
+    updateResults();
+    populateSpecialAprSelect();
+    
+    specialAprTermSelect.value = '';
+    specialAprRateInput.value = '';
+    specialAprSelector.classList.remove('active');
   });
-
-  // Gains tax rate
-  const gtr = document.getElementById('dpGainsTaxRate');
-  if (gtr) gtr.addEventListener('input', e => {
-    state.gainsTaxRate = parseNumber(e.target.value) / 100;
-    dpUpdateResults();
+  
+  // Trade-in Toggle
+  document.getElementById('addTradeInBtn').addEventListener('click', () => {
+    toggleTradeIn(true);
   });
-
-  // Residual %
-  const res = document.getElementById('dpResidualPct');
-  if (res) {
-    res.addEventListener('input', e => {
-      e.target.dataset.userEdited = 'true';
-      state.residualPct = parseNumber(e.target.value) / 100;
-      dpUpdateResults();
-    });
-    res.addEventListener('blur', e => {
-      if (!e.target.value) {
-        e.target.dataset.userEdited = 'false';
-        e.target.value = (CONFIG.downPaymentCalc.residualByTerm[state.selectedTerm] * 100).toFixed(0);
-        state.residualPct = CONFIG.downPaymentCalc.residualByTerm[state.selectedTerm];
-        dpUpdateResults();
-      }
-    });
-  }
-
-  // Popovers — position absolute, don't push layout
+  
+  document.getElementById('removeTradeInBtn').addEventListener('click', () => {
+    toggleTradeIn(false);
+  });
+  
+  // Tooltip Buttons
   document.querySelectorAll('.otd-tooltip-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const popId = btn.dataset.tooltip;
-      // Close all others first
-      document.querySelectorAll('.dp-popover').forEach(p => {
-        if (p.id !== popId) p.classList.remove('dp-popover-open');
-      });
-      const pop = document.getElementById(popId);
-      if (pop) pop.classList.toggle('dp-popover-open');
+    btn.addEventListener('click', () => {
+      const tooltipId = btn.dataset.tooltip;
+      const tooltip = document.getElementById(tooltipId);
+      tooltip.classList.toggle('active');
     });
   });
-  document.addEventListener('click', () => {
-    document.querySelectorAll('.dp-popover').forEach(p => p.classList.remove('dp-popover-open'));
-  });
-
-  // Collapsible toggles
+  
+  // Toggle Buttons (breakdown, compare, assumptions)
   document.querySelectorAll('.otd-details-toggle').forEach(toggle => {
     toggle.addEventListener('click', () => {
       toggle.classList.toggle('expanded');
@@ -631,80 +988,104 @@ function dpInitEventListeners() {
       }
     });
   });
+  
+  // Print Button
+  document.getElementById('printBtn').addEventListener('click', () => {
+    // Expand all sections for printing
+    document.querySelectorAll('.otd-details-content').forEach(content => {
+      content.classList.add('expanded');
+    });
+    document.querySelectorAll('.otd-details-toggle').forEach(toggle => {
+      toggle.classList.add('expanded');
+    });
+    
+    window.print();
+  });
 }
 
 
 // ============================================
 // INITIALIZATION
 // ============================================
-function dpInit() {
-  // Initialize ZIP tax rate from pre-filled default
-  const zipEl = document.getElementById('zipCode');
-  if (zipEl && zipEl.value) {
-    state.zipCode = zipEl.value;
-    updateTaxRate();
-  }
 
-  // Pre-fill APR
-  const aprInfo = getAprForTerm(state.selectedTerm);
-  const aprEl   = document.getElementById('dpAprInput');
-  if (aprEl) aprEl.value = (aprInfo.apr !== undefined ? aprInfo.apr : aprInfo.rate).toFixed(2);
+/**
+ * Initialize the calculator
+ */
+function init() {
+  // Populate dropdowns
+  populateAddonSelect();
+  populateDiscountSelect();
+  populateSpecialAprSelect();
+  
+  // Set up event listeners
+  initEventListeners();
+  
+  // Initial calculation
+  updateResults();
+}
 
-  // Pre-fill residual
-  const resEl = document.getElementById('dpResidualPct');
-  if (resEl) resEl.value = (CONFIG.downPaymentCalc.residualByTerm[state.selectedTerm] * 100).toFixed(0);
-
-  // Pre-fill investment fields
-  const irEl  = document.getElementById('dpInvestmentReturn');
-  const gtrEl = document.getElementById('dpGainsTaxRate');
-  if (irEl)  irEl.value  = (CONFIG.downPaymentCalc.defaultInvestmentReturn * 100).toFixed(1);
-  if (gtrEl) gtrEl.value = (CONFIG.downPaymentCalc.defaultGainsTaxRate * 100).toFixed(0);
-
-  state.downPayment = 0;
-
-  renderMaintenanceRows();
-  dpInitEventListeners();
-
-  // Mark default term tab selected
-  document.querySelectorAll('.dp-term-tab').forEach(tab => {
-    tab.classList.toggle('selected', parseInt(tab.dataset.term) === 60);
-  });
-
-  dpUpdateResults();
+// Run initialization when DOM is ready.
+// Guard: only run the OTD init when the OTD-specific elements are present
+// (i.e. this is calculator.html, not dp-calculator.html).
+function _shouldInitOtd() {
+  return !!document.getElementById('addonsList');
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', dpInit);
+  document.addEventListener('DOMContentLoaded', () => { if (_shouldInitOtd()) init(); });
 } else {
-  dpInit();
+  if (_shouldInitOtd()) init();
 }
 
 
 // ============================================
-// IFRAME HEIGHT
+// IFRAME HEIGHT COMMUNICATION
 // ============================================
-function dpInitHeightObserver() {
+
+/**
+ * Send current document height to parent window
+ * Used for dynamic iframe resizing in Webflow
+ */
+function postHeightToParent() {
+  const height = document.documentElement.scrollHeight;
+  window.parent.postMessage({
+    type: 'vkc-calculator-height',
+    height: height
+  }, '*');
+}
+
+/**
+ * Initialize height observer for iframe resizing
+ */
+function initHeightObserver() {
+  // Only run if we're in an iframe
   if (window.self === window.top) return;
-
-  function postHeight() {
-    // scrollHeight never shrinks — temporarily force height:auto to get true content height
-    document.documentElement.style.height = 'auto';
-    document.body.style.height = 'auto';
-    const height = document.body.getBoundingClientRect().height;
-    document.documentElement.style.height = '';
-    document.body.style.height = '';
-    window.parent.postMessage({ type: 'vkc-calculator-height', height: Math.ceil(height) }, '*');
-  }
-
-  setTimeout(postHeight, 100);
-  new ResizeObserver(postHeight).observe(document.body);
-  window.addEventListener('resize', postHeight);
-  // Wait for CSS transitions to finish before measuring (collapse animations ~300ms)
-  document.addEventListener('click', () => setTimeout(postHeight, 350));
+  
+  // Send initial height after a short delay (allow render)
+  setTimeout(postHeightToParent, 100);
+  
+  // Observe DOM changes that might affect height
+  const resizeObserver = new ResizeObserver(() => {
+    postHeightToParent();
+  });
+  
+  resizeObserver.observe(document.body);
+  
+  // Also send height on window resize
+  window.addEventListener('resize', postHeightToParent);
+  
+  // Send height when collapsible sections toggle
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.otd-details-toggle, .otd-add-item-btn, .otd-item-remove, .otd-remove-section-btn, #addTradeInBtn')) {
+      // Small delay to let animation/DOM update complete
+      setTimeout(postHeightToParent, 50);
+    }
+  });
 }
 
+// Initialize height observer when DOM is ready
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', dpInitHeightObserver);
+  document.addEventListener('DOMContentLoaded', initHeightObserver);
 } else {
-  dpInitHeightObserver();
+  initHeightObserver();
 }
